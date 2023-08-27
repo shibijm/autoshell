@@ -1,0 +1,64 @@
+name: Release
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: Version (vX.X.X)
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - name: Abort if release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release view $VERSION |& grep "release not found"
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run tests
+        run: go test -v ./...
+      - name: Build (x64, Linux)
+        env:
+          CGO_ENABLED: 0
+          GOARCH: amd64
+          GOOS: linux
+        run: |
+          go build -ldflags "-s -w" -trimpath -o out/linux-amd64/${{ github.event.repository.name }}
+          cp README.md LICENSE COPYRIGHT NOTICE out/linux-amd64 2>/dev/null || true
+      - name: Build (x64, Windows)
+        env:
+          CGO_ENABLED: 0
+          GOARCH: amd64
+          GOOS: windows
+        run: |
+          go build -ldflags "-s -w" -trimpath -o out/windows-amd64/${{ github.event.repository.name }}.exe
+          cp README.md LICENSE COPYRIGHT NOTICE out/windows-amd64 2>/dev/null || true
+      - name: Prepare release files
+        run: |
+          cd out
+          for filename in *; do
+            if [[ -d $filename ]]; then
+              mv $filename ${{ github.event.repository.name }}
+              zip -rm ${{ github.event.repository.name }}-$VERSION-$filename.zip ${{ github.event.repository.name }}
+            fi
+          done
+      - name: Release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
+        with:
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: true
+          files: out/*

@@ -1,0 +1,49 @@
+package main
+
+import (
+	"autoshell/core/services"
+	"autoshell/infrastructure/crypto"
+	"autoshell/interface/cli"
+	"fmt"
+	"os"
+
+	"github.com/denisbrodbeck/machineid"
+)
+
+var version = "0.0.1"
+var randomBytes = []byte{
+	0x6B, 0x11, 0x7D, 0xBA, 0xEA, 0x27, 0xC2, 0x02,
+	0x9A, 0x6B, 0x29, 0x05, 0x26, 0x33, 0x38, 0x1B,
+	0x05, 0x33, 0x53, 0x81, 0xE2, 0x51, 0x67, 0xDC,
+	0x3F, 0x68, 0x33, 0x50, 0xB3, 0x67, 0xE0, 0xA0,
+	0x96, 0xD6, 0x59, 0xD5, 0xD4, 0x7E, 0x19, 0xFF,
+	0x94, 0xA7, 0x78, 0x2A, 0xCD, 0x5C, 0xB4, 0x63,
+	0xB8, 0x89, 0x57, 0x3D, 0xCF, 0x7C, 0x25, 0x59,
+	0xB6, 0x38, 0x9D, 0x08, 0x69, 0xAE, 0x4B, 0x2C,
+}
+var encryptedConfigMark = []byte{0x17, 0x6F, 0x95, 0xF3, 0xF3, 0x81, 0x32, 0x6F}
+var machineIDPlaceholder = "$MACHINE_ID"
+
+func main() {
+	crypter := crypto.NewAesGcmCrypter()
+	machineID, err := machineid.ProtectedID(string(randomBytes))
+	if err != nil {
+		exitWithWrappedError("failed to generate machine ID", err)
+	}
+	configService := services.NewConfigService(crypter, encryptedConfigMark, machineID, machineIDPlaceholder)
+	runner := services.NewRunner()
+	cliController := cli.NewCliController(version, configService, runner)
+	err = cliController.Execute()
+	if err != nil {
+		exitWithError(err)
+	}
+}
+
+func exitWithError(err any) {
+	fmt.Printf("Error: %s\n", err)
+	os.Exit(1)
+}
+
+func exitWithWrappedError(wrapper any, err any) {
+	exitWithError(fmt.Sprintf("%s: %s", wrapper, err))
+}
