@@ -3,6 +3,7 @@ package cli
 import (
 	"autoshell/core/entities"
 	"autoshell/core/ports"
+	"autoshell/utils"
 	"errors"
 	"fmt"
 	"os"
@@ -12,24 +13,29 @@ import (
 	"golang.org/x/term"
 )
 
-type CliController struct {
-	version       string
-	configService ports.ConfigService
-	runner        ports.Runner
+type configFileServiceFactory func(filePath string) ports.ConfigFileService
+
+type runnerFactory func(config *entities.Config) ports.Runner
+
+type cliController struct {
+	version      string
+	createCfs    configFileServiceFactory
+	createRunner runnerFactory
 }
 
-func NewCliController(version string, configService ports.ConfigService, runner ports.Runner) *CliController {
-	return &CliController{version, configService, runner}
+func NewCliController(version string, createCfs configFileServiceFactory, createRunner runnerFactory) *cliController {
+	return &cliController{version, createCfs, createRunner}
 }
 
-func (cli *CliController) Execute() error {
+func (cli *cliController) Execute() error {
 	var configPath string
+	var cfs ports.ConfigFileService
 	cobra.OnInitialize(func() {
 		_, err := os.Stat(configPath)
 		if os.IsNotExist(err) {
-			fmt.Printf("Error: config file '%s' does not exist\n", configPath)
-			os.Exit(1)
+			utils.ExitWithError(fmt.Errorf("config file '%s' does not exist", configPath))
 		}
+		cfs = cli.createCfs(configPath)
 	})
 	rootCmd := &cobra.Command{
 		Use:                "autoshell",
@@ -41,41 +47,42 @@ func (cli *CliController) Execute() error {
 	runCmd := &cobra.Command{
 		Use:   "run workflow",
 		Short: "Run a workflow",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			isEncrypted, err := cli.configService.IsEncryptedConfigFile(configPath)
+			isEncrypted, err := cfs.IsFileEncrypted()
 			if err != nil {
 				return err
 			}
 			var config *entities.Config
 			if isEncrypted {
-				config, err = cli.configService.ParseConfigFileWithMachineID(configPath)
+				config, err = cfs.ParseFileWithMachineID()
 				if err != nil {
 					password, pwdErr := cli.readPassword("Password")
 					if pwdErr != nil {
 						return pwdErr
 					}
-					config, err = cli.configService.ParseConfigFileWithPassword(configPath, password)
+					config, err = cfs.ParseFileWithPassword(password)
 				}
 			} else {
-				config, err = cli.configService.ParseConfigFile(configPath)
+				config, err = cfs.ParseFile()
 			}
 			if err != nil {
 				return err
 			}
-			return cli.runner.Run(config, args[0])
+			runner := cli.createRunner(config)
+			return runner.Run(args[0], args[1:])
 		},
 	}
 	configCmd := &cobra.Command{
 		Use:   "config",
-		Short: "Config commands",
+		Short: "Config file management",
 	}
 	configEncryptCmd := &cobra.Command{
 		Use:   "encrypt",
 		Short: "Encrypt the config file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			isEncrypted, err := cli.configService.IsEncryptedConfigFile(configPath)
+			isEncrypted, err := cfs.IsFileEncrypted()
 			if err != nil {
 				return err
 			}
@@ -93,10 +100,10 @@ func (cli *CliController) Execute() error {
 			if password != confirmPassword {
 				return errors.New("passwords didn't match")
 			}
-			if cli.configService.ContainsMachineID(password) {
+			if cfs.DoesContainMachineID(password) {
 				fmt.Println("Note: Password contains machine ID")
 			}
-			err = cli.configService.EncryptConfigFile(configPath, password)
+			err = cfs.EncryptFile(password)
 			if err != nil {
 				return err
 			}
@@ -109,7 +116,7 @@ func (cli *CliController) Execute() error {
 		Short: "Decrypt the config file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			isEncrypted, err := cli.configService.IsEncryptedConfigFile(configPath)
+			isEncrypted, err := cfs.IsFileEncrypted()
 			if err != nil {
 				return err
 			}
@@ -120,7 +127,7 @@ func (cli *CliController) Execute() error {
 			if err != nil {
 				return err
 			}
-			err = cli.configService.DecryptConfigFile(configPath, password)
+			err = cfs.DecryptFile(password)
 			if err != nil {
 				return err
 			}
@@ -129,13 +136,13 @@ func (cli *CliController) Execute() error {
 		},
 	}
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yaml", "config file path")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yml", "config file path")
 	rootCmd.AddCommand(runCmd, configCmd)
 	configCmd.AddCommand(configEncryptCmd, configDecryptCmd)
 	return rootCmd.Execute()
 }
 
-func (cli *CliController) readPassword(prompt string) (string, error) {
+func (cli *cliController) readPassword(prompt string) (string, error) {
 	fmt.Print(prompt + ": ")
 	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
 	if len(passwordBytes) == 0 {

@@ -10,19 +10,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type configService struct {
+type configFileService struct {
+	filePath             string
 	crypter              ports.Crypter
 	encryptedConfigMark  []byte
 	machineID            string
 	machineIDPlaceholder string
 }
 
-func NewConfigService(crypter ports.Crypter, encryptedConfigMark []byte, machineID string, machineIDPlaceholder string) ports.ConfigService {
-	return &configService{crypter, encryptedConfigMark, machineID, machineIDPlaceholder}
+func NewConfigFileService(filePath string, crypter ports.Crypter, encryptedConfigMark []byte, machineID string, machineIDPlaceholder string) ports.ConfigFileService {
+	return &configFileService{filePath, crypter, encryptedConfigMark, machineID, machineIDPlaceholder}
 }
 
-func (s *configService) parseConfigFile(filePath string, password string) (*entities.Config, error) {
-	payload, err := os.ReadFile(filePath)
+func (s *configFileService) parseConfigFile(password string) (*entities.Config, error) {
+	payload, err := os.ReadFile(s.filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -43,34 +44,34 @@ func (s *configService) parseConfigFile(filePath string, password string) (*enti
 	return &config, nil
 }
 
-func (s *configService) ParseConfigFile(filePath string) (*entities.Config, error) {
-	return s.parseConfigFile(filePath, "")
+func (s *configFileService) ParseFile() (*entities.Config, error) {
+	return s.parseConfigFile("")
 }
 
-func (s *configService) ParseConfigFileWithMachineID(filePath string) (*entities.Config, error) {
-	return s.parseConfigFile(filePath, s.machineIDPlaceholder)
+func (s *configFileService) ParseFileWithMachineID() (*entities.Config, error) {
+	return s.parseConfigFile(s.machineIDPlaceholder)
 }
 
-func (s *configService) ParseConfigFileWithPassword(filePath string, password string) (*entities.Config, error) {
-	return s.parseConfigFile(filePath, password)
+func (s *configFileService) ParseFileWithPassword(password string) (*entities.Config, error) {
+	return s.parseConfigFile(password)
 }
 
-func (s *configService) IsEncryptedConfigFile(filePath string) (bool, error) {
-	f, err := os.Open(filePath)
+func (s *configFileService) IsFileEncrypted() (bool, error) {
+	file, err := os.Open(s.filePath)
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
-	b := make([]byte, 8)
-	_, err = f.Read(b)
+	defer file.Close()
+	b := make([]byte, len(s.encryptedConfigMark))
+	_, err = file.Read(b)
 	if err != nil {
 		return false, err
 	}
 	return bytes.Equal(b, s.encryptedConfigMark), nil
 }
 
-func (s *configService) EncryptConfigFile(filePath string, password string) error {
-	data, err := os.ReadFile(filePath)
+func (s *configFileService) EncryptFile(password string) error {
+	data, err := os.ReadFile(s.filePath)
 	if err != nil {
 		return err
 	}
@@ -78,12 +79,12 @@ func (s *configService) EncryptConfigFile(filePath string, password string) erro
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(filePath, append(s.encryptedConfigMark, encryptedData...), 0700)
+	err = os.WriteFile(s.filePath, append(s.encryptedConfigMark, encryptedData...), 0600)
 	return err
 }
 
-func (s *configService) DecryptConfigFile(filePath string, password string) error {
-	payload, err := os.ReadFile(filePath)
+func (s *configFileService) DecryptFile(password string) error {
+	payload, err := os.ReadFile(s.filePath)
 	if err != nil {
 		return err
 	}
@@ -91,14 +92,14 @@ func (s *configService) DecryptConfigFile(filePath string, password string) erro
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(filePath, data, 0700)
+	err = os.WriteFile(s.filePath, data, 0700)
 	return err
 }
 
-func (s *configService) ContainsMachineID(password string) bool {
+func (s *configFileService) DoesContainMachineID(password string) bool {
 	return strings.Contains(password, s.machineIDPlaceholder)
 }
 
-func (s *configService) transformPassword(password string) string {
+func (s *configFileService) transformPassword(password string) string {
 	return strings.ReplaceAll(password, s.machineIDPlaceholder, s.machineID)
 }

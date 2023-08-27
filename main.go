@@ -1,11 +1,11 @@
 package main
 
 import (
+	"autoshell/core/ports"
 	"autoshell/core/services"
 	"autoshell/infrastructure/crypto"
 	"autoshell/interface/cli"
-	"fmt"
-	"os"
+	"autoshell/utils"
 
 	"github.com/denisbrodbeck/machineid"
 )
@@ -28,22 +28,17 @@ func main() {
 	crypter := crypto.NewAesGcmCrypter()
 	machineID, err := machineid.ProtectedID(string(randomBytes))
 	if err != nil {
-		exitWithWrappedError("failed to generate machine ID", err)
+		utils.ExitWithWrappedError(err, "failed to generate machine ID")
 	}
-	configService := services.NewConfigService(crypter, encryptedConfigMark, machineID, machineIDPlaceholder)
-	runner := services.NewRunner()
-	cliController := cli.NewCliController(version, configService, runner)
+	cliController := cli.NewCliController(
+		version,
+		func(filePath string) ports.ConfigFileService {
+			return services.NewConfigFileService(filePath, crypter, encryptedConfigMark, machineID, machineIDPlaceholder)
+		},
+		services.NewRunner,
+	)
 	err = cliController.Execute()
 	if err != nil {
-		exitWithError(err)
+		utils.ExitWithError(err)
 	}
-}
-
-func exitWithError(err any) {
-	fmt.Printf("Error: %s\n", err)
-	os.Exit(1)
-}
-
-func exitWithWrappedError(wrapper any, err any) {
-	exitWithError(fmt.Sprintf("%s: %s", wrapper, err))
 }

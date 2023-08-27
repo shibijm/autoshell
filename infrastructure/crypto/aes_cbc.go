@@ -33,7 +33,7 @@ func (c *aesCbcCrypter) Encrypt(data []byte, password string) ([]byte, error) {
 		return nil, err
 	}
 	cbc := cipher.NewCBCEncrypter(block, iv)
-	data = c.pad(data, aes.BlockSize)
+	data = pad(data, aes.BlockSize)
 	encryptedData := make([]byte, len(data))
 	cbc.CryptBlocks(encryptedData, data)
 	payload := append(kdfSalt, append(iv, encryptedData...)...)
@@ -74,17 +74,17 @@ func (c *aesCbcCrypter) Decrypt(payload []byte, password string) ([]byte, error)
 	encryptedData := payload[kdfSaltLength+aes.BlockSize : payloadLength-sha256.Size]
 	data := make([]byte, len(encryptedData))
 	cbc.CryptBlocks(data, encryptedData)
-	data = c.unpad(data)
+	data = unpad(data)
 	return data, nil
 }
 
-func (c *aesCbcCrypter) pad(source []byte, blockSize int) []byte {
+func pad(source []byte, blockSize int) []byte {
 	paddingLength := blockSize - len(source)%blockSize
 	padding := bytes.Repeat([]byte{byte(paddingLength)}, paddingLength)
 	return append(source, padding...)
 }
 
-func (c *aesCbcCrypter) unpad(source []byte) []byte {
+func unpad(source []byte) []byte {
 	length := len(source)
 	if length == 0 {
 		return source

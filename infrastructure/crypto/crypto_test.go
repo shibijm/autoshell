@@ -19,13 +19,13 @@ func testAesCrypter(t *testing.T, crypter ports.Crypter) {
 	password := "random password"
 	encryptedData, err := crypter.Encrypt(data, password)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to encrypt: %s", err)
 	}
 	decryptedData, err := crypter.Decrypt(encryptedData, password)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to decrypt: %s", err)
 	}
 	if !bytes.Equal(data, decryptedData) {
-		t.Fatal("wrong decrypted data")
+		t.Fatal("decrypted data does not match the original data")
 	}
 }

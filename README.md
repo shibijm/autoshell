@@ -1,3 +1,3 @@
 # Autoshell
 
-UNFINISHED - DO NOT USE
+Documentation is yet to be written.
