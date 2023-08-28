@@ -27,7 +27,7 @@ type variable struct {
 
 type runner struct {
 	config               *entities.Config
-	variables            []*variable
+	variables            *[]*variable
 	failedCommands       []string
 	ignoredErrorCodes    []int
 	logFilePath          string
@@ -37,15 +37,14 @@ type runner struct {
 }
 
 func NewRunner(config *entities.Config) ports.Runner {
-	return &runner{config, []*variable{}, []string{}, []int{}, "", "", []map[string]string{}, map[*regexp.Regexp]string{regexp.MustCompile(`((?:rclone:)?:(?:storj|sftp),).*?(:\S)`): "$1***$2"}}
+	return &runner{config, &[]*variable{}, []string{}, []int{}, "", "", []map[string]string{}, map[*regexp.Regexp]string{regexp.MustCompile(`((?:rclone:)?:(?:storj|sftp),).*?(:\S)`): "$1***$2"}}
 }
 
 func (r *runner) Run(workflowName string, args []string) error {
-	r.variables = parseVariablesFromArgs(args)
 	r.logSeparator()
 	start := time.Now()
 	r.logln("Started at %s", start.Format(time.RFC3339Nano))
-	err := r.runInstruction("runWorkflow "+workflowName, &[]*variable{})
+	err := r.runInstruction("runWorkflow "+workflowName, parseArgVars(args))
 	end := time.Now()
 	elapsedSeconds := int(math.Round(end.Sub(start).Seconds()))
 	r.logSeparator()
@@ -79,57 +78,63 @@ func (r *runner) Run(workflowName string, args []string) error {
 	return err
 }
 
-func (r *runner) runInstruction(instruction string, variables *[]*variable) error {
+func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 	if len(instruction) == 0 || instruction[0] == '#' {
 		return nil
 	}
-	tokens := r.tokenise(instruction, *variables)
+	tokens := r.tokenise(instruction, locals)
 	action := tokens[0]
+	args := tokens[1:]
 	var err error
 	switch action {
 	case "runWorkflow":
-		if err = checkArgsMin(tokens, 1); err != nil {
+		if err = utils.CheckArgsMin(args, 1); err != nil {
 			break
 		}
-		workflowName := tokens[1]
+		workflowName := args[0]
 		instructions, ok := r.config.Workflows[workflowName]
 		if !ok {
 			err = fmt.Errorf("workflow '%s' not found", workflowName)
 			break
 		}
-		localVariables := parseVariablesFromArgs(tokens[2:])
+		newLocals := &[]*variable{}
+		for _, variables := range []*[]*variable{locals, parseArgVars(args[1:])} {
+			for _, v := range *variables {
+				setVariable(newLocals, v.name, v.value)
+			}
+		}
 		for _, instruction := range strings.Split(instructions, "\n") {
-			err = r.runInstruction(instruction, &localVariables)
+			err = r.runInstruction(instruction, newLocals)
 			if err != nil {
 				return err
 			}
 		}
 	case "setGlobalVar":
-		if err = checkArgsExact(tokens, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
-		r.variables = getUpdatedVariables(r.variables, tokens[1], tokens[2])
+		setVariable(r.variables, args[0], args[1])
 	case "setLocalVar":
-		if err = checkArgsExact(tokens, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
-		*variables = getUpdatedVariables(*variables, tokens[1], tokens[2])
+		setVariable(locals, args[0], args[1])
 	case "setEnvVar":
-		if err = checkArgsExact(tokens, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
-		err = os.Setenv(tokens[1], tokens[2])
+		err = os.Setenv(args[0], args[1])
 	case "runCommand":
-		if err = checkArgsMin(tokens, 2); err != nil {
+		if err = utils.CheckArgsMin(args, 2); err != nil {
 			break
 		}
-		commandID := tokens[1]
+		commandID := args[0]
 		silent2 := commandID == "--"
 		silent1 := silent2 || commandID == "-"
-		cmd := exec.Command(tokens[2], tokens[3:]...)
+		cmd := exec.Command(args[1], args[2:]...)
 		if !silent1 {
 			r.logSeparator()
-			r.logln("Command: %s", commandID)
+			r.logln("Command ID: %s", commandID)
 		}
 		if !silent2 {
 			r.logSeparator()
@@ -166,34 +171,52 @@ func (r *runner) runInstruction(instruction string, variables *[]*variable) erro
 			r.failedCommands = append(r.failedCommands, commandID)
 		}
 	case "print":
-		r.logln(strings.Join(tokens[1:], " "))
+		r.logln(strings.Join(args, " "))
 	case "setIgnoredErrorCodes":
-		if err = checkArgsExact(tokens, 1); err != nil {
+		if err = utils.CheckArgsExact(args, 1); err != nil {
 			break
 		}
-		err = json.Unmarshal([]byte(tokens[1]), &r.ignoredErrorCodes)
+		err = json.Unmarshal([]byte(args[0]), &r.ignoredErrorCodes)
 	case "setLogFile":
-		if err = checkArgsExact(tokens, 1); err != nil {
+		if err = utils.CheckArgsExact(args, 1); err != nil {
 			break
 		}
-		err = appendToFile(tokens[1], r.logFileContentBuffer)
+		err = utils.AppendToFile(args[0], r.logFileContentBuffer)
 		if err == nil {
-			r.logFilePath = tokens[1]
+			r.logFilePath = args[0]
 			r.logFileContentBuffer = ""
 		}
 	case "addReporter":
-		if err = checkArgsMin(tokens, 1); err != nil {
+		if err = utils.CheckArgsMin(args, 1); err != nil {
 			break
 		}
-		reporterType := tokens[1]
+		reporterType := args[0]
 		switch reporterType {
 		case "uptimeKuma":
-			if err = checkArgsExact(tokens, 2); err != nil {
+			if err = utils.CheckArgsExact(args, 2); err != nil {
 				break
 			}
-			r.reporters = append(r.reporters, map[string]string{"type": reporterType, "endpoint": tokens[2]})
+			r.reporters = append(r.reporters, map[string]string{"type": reporterType, "endpoint": args[1]})
 		default:
 			err = fmt.Errorf("reporter type '%s' is not supported", reporterType)
+		}
+	case "shiftArgVars":
+		if err = utils.CheckArgsExact(args, 0); err != nil {
+			break
+		}
+		v := getVariable(locals, "@")
+		if v != nil {
+			tokens := r.tokenise(v.value, &[]*variable{})
+			if len(tokens) <= 1 {
+				setVariable(locals, "@", "")
+				setVariable(locals, "1", "")
+			} else {
+				newLocals := parseArgVars(tokens[1:])
+				for _, v := range *newLocals {
+					setVariable(locals, v.name, v.value)
+				}
+				setVariable(locals, strconv.Itoa(len(tokens)), "")
+			}
 		}
 	default:
 		err = errors.New("unrecognised action")
@@ -204,13 +227,13 @@ func (r *runner) runInstruction(instruction string, variables *[]*variable) erro
 	return err
 }
 
-func (r *runner) tokenise(input string, variables []*variable) []string {
-	allVariables := append(variables, r.variables...)
-	sort.Slice(allVariables, func(i, j int) bool {
+func (r *runner) tokenise(input string, variables *[]*variable) []string {
+	allVariables := append(append([]*variable{}, *variables...), *r.variables...)
+	sort.SliceStable(allVariables, func(i, j int) bool {
 		return len(allVariables[i].name) > len(allVariables[j].name)
 	})
-	for _, variable := range allVariables {
-		input = strings.ReplaceAll(input, "$"+variable.name, variable.value)
+	for _, v := range allVariables {
+		input = strings.ReplaceAll(input, "$"+v.name, v.value)
 	}
 	input = os.ExpandEnv(input)
 	var tokens []string
@@ -279,7 +302,7 @@ func (r *runner) log(format string, a ...any) {
 	}
 	fmt.Print(text)
 	if r.logFilePath != "" {
-		err := appendToFile(r.logFilePath, text)
+		err := utils.AppendToFile(r.logFilePath, text)
 		if err != nil {
 			fmt.Printf("Failed to write to log file: %s\n", err)
 		}
@@ -296,59 +319,31 @@ func (r *runner) logSeparator() {
 	r.logln(strings.Repeat("-", 80))
 }
 
-func parseVariablesFromArgs(args []string) []*variable {
-	variables := []*variable{}
+func parseArgVars(args []string) *[]*variable {
+	variables := &[]*variable{}
 	for i, arg := range args {
-		variables = getUpdatedVariables(variables, strconv.Itoa(i+1), arg)
+		setVariable(variables, strconv.Itoa(i+1), arg)
 	}
 	if len(args) > 0 {
-		variables = getUpdatedVariables(variables, "@", strings.Join(args, " "))
+		setVariable(variables, "@", strings.Join(args, " "))
 	}
 	return variables
 }
 
-func getUpdatedVariables(variables []*variable, name string, value string) []*variable {
-	found := false
-	for _, variable := range variables {
-		if variable.name == name {
-			variable.value = value
-			found = true
-			break
+func getVariable(variables *[]*variable, name string) *variable {
+	for _, v := range *variables {
+		if v.name == name {
+			return v
 		}
-	}
-	if !found {
-		variables = append(variables, &variable{name, value})
-	}
-	return variables
-}
-
-func checkArgs(args []string, expected int, compare func(argsLength int, expected int) (bool, string)) error {
-	argsLength := len(args) - 1
-	failed, expectedText := compare(argsLength, expected)
-	if failed {
-		return fmt.Errorf("invalid number of args, %s %d, received %d", expectedText, expected, argsLength)
 	}
 	return nil
 }
 
-func checkArgsExact(args []string, expected int) error {
-	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
-		return argsLength != expected, "expected"
-	})
-}
-
-func checkArgsMin(args []string, expected int) error {
-	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
-		return argsLength < expected, "expected at least"
-	})
-}
-
-func appendToFile(filePath string, text string) error {
-	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		return err
+func setVariable(variables *[]*variable, name string, value string) {
+	v := getVariable(variables, name)
+	if v != nil {
+		v.value = value
+	} else {
+		*variables = append(*variables, &variable{name, value})
 	}
-	defer file.Close()
-	_, err = file.WriteString(text)
-	return err
 }
