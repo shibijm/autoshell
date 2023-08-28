@@ -28,7 +28,7 @@ func main() {
 	crypter := crypto.NewAesGcmCrypter()
 	machineID, err := machineid.ProtectedID(string(randomBytes))
 	if err != nil {
-		utils.ExitWithWrappedError(err, "failed to generate machine ID")
+		utils.ExitWithError(utils.WrapError(err, "failed to generate machine ID"))
 	}
 	cliController := cli.NewCliController(
 		version,

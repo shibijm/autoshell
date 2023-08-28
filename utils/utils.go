@@ -10,10 +10,6 @@ func ExitWithError(err error) {
 	os.Exit(1)
 }
 
-func ExitWithWrappedError(err error, message string) {
-	ExitWithError(WrapError(err, message))
-}
-
 func WrapError(err error, message string) error {
 	return fmt.Errorf("%s: %w", message, err)
 }
