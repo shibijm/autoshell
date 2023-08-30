@@ -3,103 +3,95 @@ package services
 import (
 	"autoshell/core/entities"
 	"autoshell/core/ports"
+	"autoshell/utils"
 	"bytes"
+	"errors"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-type configFileService struct {
-	filePath             string
-	crypter              ports.Crypter
-	encryptedConfigMark  []byte
-	machineID            string
-	machineIDPlaceholder string
+type configService struct {
+	crypter         ports.Crypter
+	filePath        string
+	encryptionMark  []byte
+	idLength        int
+	isFileEncrypted bool
+	configBytes     []byte
+	config          *entities.Config
 }
 
-func NewConfigFileService(filePath string, crypter ports.Crypter, encryptedConfigMark []byte, machineID string, machineIDPlaceholder string) ports.ConfigFileService {
-	return &configFileService{filePath, crypter, encryptedConfigMark, machineID, machineIDPlaceholder}
-}
-
-func (s *configFileService) parseConfigFile(password string) (*entities.Config, error) {
-	payload, err := os.ReadFile(s.filePath)
+func NewConfigService(crypter ports.Crypter, filePath string, getPassword ports.PasswordFactory) (ports.ConfigService, error) {
+	encryptionMark := []byte{0x17, 0x6F, 0x95, 0xF3, 0xF3, 0x81, 0x32, 0x6F}
+	encryptionMarkLength := len(encryptionMark)
+	idLength := 32
+	fileData, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-	var data []byte
-	if password != "" {
-		data, err = s.crypter.Decrypt(payload[len(s.encryptedConfigMark):], s.transformPassword(password))
+	isFileEncrypted := bytes.Equal(fileData[:encryptionMarkLength], encryptionMark)
+	var configBytes []byte
+	if isFileEncrypted {
+		id := fileData[encryptionMarkLength : encryptionMarkLength+idLength]
+		password, err := getPassword(id)
+		if err != nil {
+			return nil, err
+		}
+		configBytes, err = crypter.Decrypt(fileData[encryptionMarkLength+idLength:], password)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		data = payload
+		configBytes = fileData
 	}
 	config := entities.Config{}
-	err = yaml.Unmarshal(data, &config)
+	err = yaml.Unmarshal(configBytes, &config)
 	if err != nil {
 		return nil, err
 	}
-	return &config, nil
+	return &configService{crypter, filePath, encryptionMark, idLength, isFileEncrypted, configBytes, &config}, nil
 }
 
-func (s *configFileService) ParseFile() (*entities.Config, error) {
-	return s.parseConfigFile("")
+func (s *configService) GetConfig() *entities.Config {
+	return s.config
 }
 
-func (s *configFileService) ParseFileWithMachineID() (*entities.Config, error) {
-	return s.parseConfigFile(s.machineIDPlaceholder)
-}
-
-func (s *configFileService) ParseFileWithPassword(password string) (*entities.Config, error) {
-	return s.parseConfigFile(password)
-}
-
-func (s *configFileService) IsFileEncrypted() (bool, error) {
-	file, err := os.Open(s.filePath)
-	if err != nil {
-		return false, err
+func (s *configService) SaveToFileEncrypted(getPassword ports.PasswordFactory, getConfirmPassword ports.PasswordFactory) error {
+	if s.isFileEncrypted {
+		return errors.New("config file is already encrypted")
 	}
-	defer file.Close()
-	b := make([]byte, len(s.encryptedConfigMark))
-	_, err = file.Read(b)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(b, s.encryptedConfigMark), nil
-}
-
-func (s *configFileService) EncryptFile(password string) error {
-	data, err := os.ReadFile(s.filePath)
+	id := utils.GenerateRandomBytes(s.idLength)
+	password, err := getPassword(id)
 	if err != nil {
 		return err
 	}
-	encryptedData, err := s.crypter.Encrypt(data, s.transformPassword(password))
+	confirmPassword, err := getConfirmPassword(id)
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(s.filePath, append(s.encryptedConfigMark, encryptedData...), 0600)
-	return err
-}
-
-func (s *configFileService) DecryptFile(password string) error {
-	payload, err := os.ReadFile(s.filePath)
+	if password != confirmPassword {
+		return errors.New("passwords didn't match")
+	}
+	data, err := s.crypter.Encrypt(s.configBytes, password)
 	if err != nil {
 		return err
 	}
-	data, err := s.crypter.Decrypt(payload[len(s.encryptedConfigMark):], s.transformPassword(password))
+	err = os.WriteFile(s.filePath, append(append(s.encryptionMark, id...), data...), 0600)
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(s.filePath, data, 0700)
-	return err
+	s.isFileEncrypted = true
+	return nil
 }
 
-func (s *configFileService) DoesContainMachineID(password string) bool {
-	return strings.Contains(password, s.machineIDPlaceholder)
-}
-
-func (s *configFileService) transformPassword(password string) string {
-	return strings.ReplaceAll(password, s.machineIDPlaceholder, s.machineID)
+func (s *configService) SaveToFileDecrypted() error {
+	if !s.isFileEncrypted {
+		return errors.New("config file is not encrypted")
+	}
+	err := os.WriteFile(s.filePath, s.configBytes, 0600)
+	if err != nil {
+		return err
+	}
+	s.isFileEncrypted = false
+	return nil
 }

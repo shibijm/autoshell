@@ -1,19 +1,15 @@
 @echo off
 setlocal
+for /F "tokens=*" %%i in ('type .env') do set %%i
 set CGO_ENABLED=0
-set GOARCH=amd64
 set GOOS=windows
-echo Building Windows binary...
-go build -ldflags "-s -w" -trimpath -o out/
-call :checkBuildStatus
+set GOARCH=amd64
+call :build
 set GOOS=linux
-echo Building Linux binary...
-go build -ldflags "-s -w" -trimpath -o out/
-call :checkBuildStatus
+call :build
+set GOARCH=arm64
+call :build
 exit /b 0
-:checkBuildStatus
-if not %ERRORLEVEL%==0 (
-	echo Build failed
-) else (
-	echo Build succeeded
-)
+:build
+echo Building %GOOS%-%GOARCH%
+go build -ldflags "-s -w -X autoshell/utils.devicePassSeed=%DEVICE_PASS_SEED%" -trimpath -o out/%GOOS%-%GOARCH%/

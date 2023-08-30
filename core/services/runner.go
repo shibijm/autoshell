@@ -3,7 +3,6 @@ package services
 import (
 	"autoshell/core/entities"
 	"autoshell/core/ports"
-	"autoshell/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,11 +39,11 @@ func NewRunner(config *entities.Config) ports.Runner {
 	return &runner{config, &[]*variable{}, []string{}, []int{}, "", "", []map[string]string{}, map[*regexp.Regexp]string{regexp.MustCompile(`((?:rclone:)?:(?:storj|sftp),).*?(:\S)`): "$1***$2"}}
 }
 
-func (r *runner) Run(workflowName string, args []string) error {
+func (r *runner) Run(workflow string, args []string) error {
 	r.logSeparator()
 	start := time.Now()
 	r.logln("Started at %s", start.Format(time.RFC3339Nano))
-	err := r.runInstruction("runWorkflow "+workflowName, parseArgVars(args))
+	err := r.runInstruction("runWorkflow "+workflow, parseArgVars(args))
 	end := time.Now()
 	elapsedSeconds := int(math.Round(end.Sub(start).Seconds()))
 	r.logSeparator()
@@ -88,13 +87,13 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 	var err error
 	switch action {
 	case "runWorkflow":
-		if err = utils.CheckArgsMin(args, 1); err != nil {
+		if err = checkArgsMin(args, 1); err != nil {
 			break
 		}
-		workflowName := args[0]
-		instructions, ok := r.config.Workflows[workflowName]
+		workflow := args[0]
+		instructions, ok := r.config.Workflows[workflow]
 		if !ok {
-			err = fmt.Errorf("workflow '%s' not found", workflowName)
+			err = fmt.Errorf("workflow '%s' not found", workflow)
 			break
 		}
 		newLocals := &[]*variable{}
@@ -109,23 +108,23 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 				return err
 			}
 		}
+	case "setEnvVar":
+		if err = checkArgsExact(args, 2); err != nil {
+			break
+		}
+		err = os.Setenv(args[0], args[1])
 	case "setGlobalVar":
-		if err = utils.CheckArgsExact(args, 2); err != nil {
+		if err = checkArgsExact(args, 2); err != nil {
 			break
 		}
 		setVariable(r.variables, args[0], args[1])
 	case "setLocalVar":
-		if err = utils.CheckArgsExact(args, 2); err != nil {
+		if err = checkArgsExact(args, 2); err != nil {
 			break
 		}
 		setVariable(locals, args[0], args[1])
-	case "setEnvVar":
-		if err = utils.CheckArgsExact(args, 2); err != nil {
-			break
-		}
-		err = os.Setenv(args[0], args[1])
 	case "runCommand":
-		if err = utils.CheckArgsMin(args, 2); err != nil {
+		if err = checkArgsMin(args, 2); err != nil {
 			break
 		}
 		commandID := args[0]
@@ -156,7 +155,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 		}
 		if err != nil && !silent1 {
 			if exitError, ok := err.(*exec.ExitError); ok {
-				ignoreError := false
+				var ignoreError bool
 				for _, ignoredErrorCode := range r.ignoredErrorCodes {
 					if exitError.ProcessState.ExitCode() == ignoredErrorCode {
 						ignoreError = true
@@ -170,38 +169,38 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			r.logln("%s failed: %s", action, err)
 			r.failedCommands = append(r.failedCommands, commandID)
 		}
-	case "print":
-		r.logln(strings.Join(args, " "))
-	case "setIgnoredErrorCodes":
-		if err = utils.CheckArgsExact(args, 1); err != nil {
-			break
-		}
-		err = json.Unmarshal([]byte(args[0]), &r.ignoredErrorCodes)
 	case "setLogFile":
-		if err = utils.CheckArgsExact(args, 1); err != nil {
+		if err = checkArgsExact(args, 1); err != nil {
 			break
 		}
-		err = utils.AppendToFile(args[0], r.logFileContentBuffer)
+		err = appendToFile(args[0], r.logFileContentBuffer)
 		if err == nil {
 			r.logFilePath = args[0]
 			r.logFileContentBuffer = ""
 		}
 	case "addReporter":
-		if err = utils.CheckArgsMin(args, 1); err != nil {
+		if err = checkArgsMin(args, 1); err != nil {
 			break
 		}
 		reporterType := args[0]
 		switch reporterType {
 		case "uptimeKuma":
-			if err = utils.CheckArgsExact(args, 2); err != nil {
+			if err = checkArgsExact(args, 2); err != nil {
 				break
 			}
 			r.reporters = append(r.reporters, map[string]string{"type": reporterType, "endpoint": args[1]})
 		default:
 			err = fmt.Errorf("reporter type '%s' is not supported", reporterType)
 		}
+	case "setIgnoredErrorCodes":
+		if err = checkArgsExact(args, 1); err != nil {
+			break
+		}
+		err = json.Unmarshal([]byte(args[0]), &r.ignoredErrorCodes)
+	case "print":
+		r.logln(strings.Join(args, " "))
 	case "shiftArgVars":
-		if err = utils.CheckArgsExact(args, 0); err != nil {
+		if err = checkArgsExact(args, 0); err != nil {
 			break
 		}
 		v := getVariable(locals, "@")
@@ -211,8 +210,8 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 				setVariable(locals, "@", "")
 				setVariable(locals, "1", "")
 			} else {
-				newLocals := parseArgVars(tokens[1:])
-				for _, v := range *newLocals {
+				argVars := parseArgVars(tokens[1:])
+				for _, v := range *argVars {
 					setVariable(locals, v.name, v.value)
 				}
 				setVariable(locals, strconv.Itoa(len(tokens)), "")
@@ -222,7 +221,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 		err = errors.New("unrecognised action")
 	}
 	if err != nil {
-		err = utils.WrapError(err, fmt.Sprintf("action '%s' failed", action))
+		err = fmt.Errorf("action '%s' failed: %w", action, err)
 	}
 	return err
 }
@@ -302,7 +301,7 @@ func (r *runner) log(format string, a ...any) {
 	}
 	fmt.Print(text)
 	if r.logFilePath != "" {
-		err := utils.AppendToFile(r.logFilePath, text)
+		err := appendToFile(r.logFilePath, text)
 		if err != nil {
 			fmt.Printf("Failed to write to log file: %s\n", err)
 		}
@@ -346,4 +345,35 @@ func setVariable(variables *[]*variable, name string, value string) {
 	} else {
 		*variables = append(*variables, &variable{name, value})
 	}
+}
+
+func checkArgs(args []string, expected int, compare func(argsLength int, expected int) (bool, string)) error {
+	argsLength := len(args)
+	failed, expectedText := compare(argsLength, expected)
+	if failed {
+		return fmt.Errorf("invalid number of args, %s %d, received %d", expectedText, expected, argsLength)
+	}
+	return nil
+}
+
+func checkArgsExact(args []string, expected int) error {
+	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
+		return argsLength != expected, "expected"
+	})
+}
+
+func checkArgsMin(args []string, expected int) error {
+	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
+		return argsLength < expected, "expected at least"
+	})
+}
+
+func appendToFile(filePath string, text string) error {
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteString(text)
+	return err
 }
