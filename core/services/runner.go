@@ -3,6 +3,7 @@ package services
 import (
 	"autoshell/core/entities"
 	"autoshell/core/ports"
+	"autoshell/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,12 +43,12 @@ func NewRunner(config *entities.Config) ports.Runner {
 func (r *runner) Run(workflow string, args []string) error {
 	r.logSeparator()
 	start := time.Now()
-	r.logln("Started at %s", start.Format(time.RFC3339Nano))
+	r.log("Started at %s", start.Format(time.RFC3339Nano))
 	err := r.runInstruction("runWorkflow "+workflow, parseArgVars(args))
 	end := time.Now()
 	elapsedSeconds := int(math.Round(end.Sub(start).Seconds()))
 	r.logSeparator()
-	r.logln("Ended at %s (took %d seconds)", end.Format(time.RFC3339Nano), elapsedSeconds)
+	r.log("Ended at %s (took %d seconds)", end.Format(time.RFC3339Nano), elapsedSeconds)
 	errCausedAbort := err != nil
 	if len(r.failedCommands) > 0 {
 		failedCommandsErr := fmt.Errorf("failed commands: %s", strings.Join(r.failedCommands, ", "))
@@ -69,7 +70,7 @@ func (r *runner) Run(workflow string, args []string) error {
 		runes[0] = unicode.ToUpper(runes[0])
 		errDetail = string(runes)
 		r.logSeparator()
-		r.logln("%s", errDetail)
+		r.log("%s", errDetail)
 		err = fmt.Errorf("runner %s", strings.ToLower(errSummary))
 	}
 	r.report(elapsedSeconds, errSummary, errDetail)
@@ -87,7 +88,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 	var err error
 	switch action {
 	case "runWorkflow":
-		if err = checkArgsMin(args, 1); err != nil {
+		if err = utils.CheckArgsMin(args, 1); err != nil {
 			break
 		}
 		workflow := args[0]
@@ -109,22 +110,22 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			}
 		}
 	case "setEnvVar":
-		if err = checkArgsExact(args, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
 		err = os.Setenv(args[0], args[1])
 	case "setGlobalVar":
-		if err = checkArgsExact(args, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
 		setVariable(r.variables, args[0], args[1])
 	case "setLocalVar":
-		if err = checkArgsExact(args, 2); err != nil {
+		if err = utils.CheckArgsExact(args, 2); err != nil {
 			break
 		}
 		setVariable(locals, args[0], args[1])
 	case "runCommand":
-		if err = checkArgsMin(args, 2); err != nil {
+		if err = utils.CheckArgsMin(args, 2); err != nil {
 			break
 		}
 		commandID := args[0]
@@ -133,7 +134,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 		cmd := exec.Command(args[1], args[2:]...)
 		if !silent1 {
 			r.logSeparator()
-			r.logln("Command ID: %s", commandID)
+			r.log("Command ID: %s", commandID)
 		}
 		if !silent2 {
 			r.logSeparator()
@@ -143,7 +144,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			var output []byte
 			output, err = cmd.CombinedOutput()
 			if !silent2 {
-				r.log(string(output))
+				r.logRaw(string(output))
 			}
 		} else {
 			if !silent2 {
@@ -166,26 +167,26 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 					break
 				}
 			}
-			r.logln("%s failed: %s", action, err)
+			r.log("%s failed: %s", action, err)
 			r.failedCommands = append(r.failedCommands, commandID)
 		}
 	case "setLogFile":
-		if err = checkArgsExact(args, 1); err != nil {
+		if err = utils.CheckArgsExact(args, 1); err != nil {
 			break
 		}
-		err = appendToFile(args[0], r.logFileContentBuffer)
+		err = utils.AppendToFile(args[0], r.logFileContentBuffer)
 		if err == nil {
 			r.logFilePath = args[0]
 			r.logFileContentBuffer = ""
 		}
 	case "addReporter":
-		if err = checkArgsMin(args, 1); err != nil {
+		if err = utils.CheckArgsMin(args, 1); err != nil {
 			break
 		}
 		reporterType := args[0]
 		switch reporterType {
 		case "uptimeKuma":
-			if err = checkArgsExact(args, 2); err != nil {
+			if err = utils.CheckArgsExact(args, 2); err != nil {
 				break
 			}
 			r.reporters = append(r.reporters, map[string]string{"type": reporterType, "endpoint": args[1]})
@@ -193,14 +194,14 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			err = fmt.Errorf("reporter type '%s' is not supported", reporterType)
 		}
 	case "setIgnoredErrorCodes":
-		if err = checkArgsExact(args, 1); err != nil {
+		if err = utils.CheckArgsExact(args, 1); err != nil {
 			break
 		}
 		err = json.Unmarshal([]byte(args[0]), &r.ignoredErrorCodes)
 	case "print":
-		r.logln(strings.Join(args, " "))
+		r.log(strings.Join(args, " "))
 	case "shiftArgVars":
-		if err = checkArgsExact(args, 0); err != nil {
+		if err = utils.CheckArgsExact(args, 0); err != nil {
 			break
 		}
 		v := getVariable(locals, "@")
@@ -289,19 +290,19 @@ func (r *runner) report(elapsedSeconds int, errSummary string, errDetail string)
 			err = errors.New("unsupported reporter type")
 		}
 		if err != nil {
-			r.logln("Reporter with type '%s' failed: %s", reporter["type"], err)
+			r.log("Reporter with type '%s' failed: %s", reporter["type"], err)
 		}
 	}
 }
 
-func (r *runner) log(format string, a ...any) {
+func (r *runner) logRaw(format string, a ...any) {
 	text := fmt.Sprintf(format, a...)
 	for re, replacement := range r.logReplacements {
 		text = re.ReplaceAllString(text, replacement)
 	}
 	fmt.Print(text)
 	if r.logFilePath != "" {
-		err := appendToFile(r.logFilePath, text)
+		err := utils.AppendToFile(r.logFilePath, text)
 		if err != nil {
 			fmt.Printf("Failed to write to log file: %s\n", err)
 		}
@@ -310,12 +311,12 @@ func (r *runner) log(format string, a ...any) {
 	}
 }
 
-func (r *runner) logln(format string, a ...any) {
-	r.log(format+"\n", a...)
+func (r *runner) log(format string, a ...any) {
+	r.logRaw(format+"\n", a...)
 }
 
 func (r *runner) logSeparator() {
-	r.logln(strings.Repeat("-", 80))
+	r.log(strings.Repeat("-", 80))
 }
 
 func parseArgVars(args []string) *[]*variable {
@@ -345,35 +346,4 @@ func setVariable(variables *[]*variable, name string, value string) {
 	} else {
 		*variables = append(*variables, &variable{name, value})
 	}
-}
-
-func checkArgs(args []string, expected int, compare func(argsLength int, expected int) (bool, string)) error {
-	argsLength := len(args)
-	failed, expectedText := compare(argsLength, expected)
-	if failed {
-		return fmt.Errorf("invalid number of args, %s %d, received %d", expectedText, expected, argsLength)
-	}
-	return nil
-}
-
-func checkArgsExact(args []string, expected int) error {
-	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
-		return argsLength != expected, "expected"
-	})
-}
-
-func checkArgsMin(args []string, expected int) error {
-	return checkArgs(args, expected, func(argsLength int, expected int) (bool, string) {
-		return argsLength < expected, "expected at least"
-	})
-}
-
-func appendToFile(filePath string, text string) error {
-	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = file.WriteString(text)
-	return err
 }

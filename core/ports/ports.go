@@ -11,7 +11,7 @@ type PasswordFactory func(id []byte) (string, error)
 
 type ConfigService interface {
 	GetConfig() *entities.Config
-	SaveToFileEncrypted(getPassword PasswordFactory, getConfirmPassword PasswordFactory) error
+	SaveToFileEncrypted(getPassword PasswordFactory) error
 	SaveToFileDecrypted() error
 }
 

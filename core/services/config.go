@@ -32,6 +32,9 @@ func NewConfigService(crypter ports.Crypter, filePath string, getPassword ports.
 	isFileEncrypted := bytes.Equal(fileData[:encryptionMarkLength], encryptionMark)
 	var configBytes []byte
 	if isFileEncrypted {
+		if len(fileData) < encryptionMarkLength+idLength {
+			return nil, errors.New("invalid encrypted config file")
+		}
 		id := fileData[encryptionMarkLength : encryptionMarkLength+idLength]
 		password, err := getPassword(id)
 		if err != nil {
@@ -56,7 +59,7 @@ func (s *configService) GetConfig() *entities.Config {
 	return s.config
 }
 
-func (s *configService) SaveToFileEncrypted(getPassword ports.PasswordFactory, getConfirmPassword ports.PasswordFactory) error {
+func (s *configService) SaveToFileEncrypted(getPassword ports.PasswordFactory) error {
 	if s.isFileEncrypted {
 		return errors.New("config file is already encrypted")
 	}
@@ -64,13 +67,6 @@ func (s *configService) SaveToFileEncrypted(getPassword ports.PasswordFactory, g
 	password, err := getPassword(id)
 	if err != nil {
 		return err
-	}
-	confirmPassword, err := getConfirmPassword(id)
-	if err != nil {
-		return err
-	}
-	if password != confirmPassword {
-		return errors.New("passwords didn't match")
 	}
 	data, err := s.crypter.Encrypt(s.configBytes, password)
 	if err != nil {

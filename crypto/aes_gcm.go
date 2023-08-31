@@ -6,22 +6,21 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
-
-	"golang.org/x/crypto/argon2"
 )
 
 type aesGcmCrypter struct {
-	saltLength  int
-	nonceLength int
+	keyLength    int
+	pwSaltLength int
+	nonceLength  int
 }
 
 func NewAesGcmCrypter() ports.Crypter {
-	return &aesGcmCrypter{32, 12}
+	return &aesGcmCrypter{32, 32, 12}
 }
 
 func (c *aesGcmCrypter) Encrypt(data []byte, password string) ([]byte, error) {
-	salt := utils.GenerateRandomBytes(c.saltLength)
-	key := c.generateArgon2idKey(password, salt)
+	salt := utils.GenerateRandomBytes(c.pwSaltLength)
+	key := utils.GenerateArgon2idKey(password, salt, c.keyLength)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -37,12 +36,11 @@ func (c *aesGcmCrypter) Encrypt(data []byte, password string) ([]byte, error) {
 }
 
 func (c *aesGcmCrypter) Decrypt(payload []byte, password string) ([]byte, error) {
-	encryptedDataLength := len(payload) - (c.saltLength + c.nonceLength)
-	if encryptedDataLength < 0 {
+	if len(payload) < c.pwSaltLength+c.nonceLength {
 		return nil, errors.New("invalid payload")
 	}
-	salt := payload[:c.saltLength]
-	key := c.generateArgon2idKey(password, salt)
+	salt := payload[:c.pwSaltLength]
+	key := utils.GenerateArgon2idKey(password, salt, c.keyLength)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -51,12 +49,7 @@ func (c *aesGcmCrypter) Decrypt(payload []byte, password string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	nonce := payload[c.saltLength : c.saltLength+c.nonceLength]
-	encryptedData := payload[c.saltLength+c.nonceLength:]
-	data, err := gcm.Open(nil, nonce, encryptedData, nil)
-	return data, err
-}
-
-func (c *aesGcmCrypter) generateArgon2idKey(password string, salt []byte) []byte {
-	return argon2.IDKey([]byte(password), salt, 8, 16*1024, 8, 32)
+	nonce := payload[c.pwSaltLength : c.pwSaltLength+c.nonceLength]
+	encryptedData := payload[c.pwSaltLength+c.nonceLength:]
+	return gcm.Open(nil, nonce, encryptedData, nil)
 }

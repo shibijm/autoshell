@@ -5,10 +5,12 @@ import (
 	"autoshell/core/ports"
 	"autoshell/core/services"
 	"autoshell/crypto"
+	"fmt"
 	"os"
+	"unicode"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 func main() {
 	crypter := crypto.NewAesGcmCrypter()
@@ -21,6 +23,10 @@ func main() {
 	)
 	err := cliController.Execute()
 	if err != nil {
+		errRunes := []rune(err.Error())
+		errRunes[0] = unicode.ToUpper(errRunes[0])
+		errString := string(errRunes)
+		fmt.Printf("Error: %s\n", errString)
 		os.Exit(1)
 	}
 }

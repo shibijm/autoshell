@@ -3,7 +3,7 @@
 > [!NOTE]
 > This README/documentation is incomplete.
 
-Autoshell is a command-line utility facilitating automatic execution of shell commands under different environments.
+Autoshell is a command-line utility facilitating automatic execution of shell commands.
 
 [![Latest Release](https://img.shields.io/github/v/release/shibijm/autoshell?label=Latest%20Release)](https://github.com/shibijm/autoshell/releases/latest)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/shibijm/autoshell/release.yml?label=Build&logo=github)](https://github.com/shibijm/autoshell/actions/workflows/release.yml)
@@ -62,9 +62,53 @@ Global Flags:
 
 ### Encryption
 
-Config file encryption employs AES-256 in GCM mode. The encryption key is derived from a provided password using Argon2id.
+Config file encryption employs AES-256 in GCM mode. The encryption key is derived using Argon2id.
 
-Instances of the string `$auto` within a given password will be substituted with a device pass. The 'run' command will attempt to automatically decrypt the config file using password `$auto` before prompting for manual password input. This operation proves successful when attempted on the original machine that initially encrypted the config file. This facilitates the obfuscation of config files while enabling fully automated runs without the need for manual password entry.
+Instances of the string `$auto` within passwords will be substituted with a device pass, which is the SHA-256 hash of the combination of machine ID, hardcoded randomness and a random config file ID generated afresh each time before encrypting a config file.
+
+The 'run' command will attempt to automatically decrypt the config file using password `$auto` before prompting for manual password input. Such an attempt would be successful only on the machine that initially encrypted the config file. Config files used for fully automated runs can be obfuscated by using this feature.
+
+If a config file is marked as protected, the 'decrypt' command will refuse to save the decrypted data to disk if the decryption password contains `$auto`. In such cases, the underlying explicit password is required, which is displayed only once right after encryption.
+
+<details>
+
+<summary>Example</summary>
+
+<br />
+
+```
+$ cat config.yml
+protected: true
+workflows:
+  hello: runCommand - echo Hello world
+
+$ autoshell config encrypt
+Password: $auto (hidden input)
+Confirm Password: $auto (hidden input)
+Password contains "$auto"
+Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains "$auto"
+Please store this explicit password safely: 6f6c19ca785f011a789c1893d96f68ad5b9851fbc5cfd21b20299c90402489c9
+Config file encrypted successfully
+
+$ autoshell run hello
+--------------------------------------------------------------------------------
+Started at 2023-08-31T21:52:14.7602479+05:30
+--------------------------------------------------------------------------------
+Hello world
+--------------------------------------------------------------------------------
+Ended at 2023-08-31T21:52:14.8457359+05:30 (took 0 seconds)
+--------------------------------------------------------------------------------
+
+$ autoshell config decrypt
+Password: $auto (hidden input)
+Error: Config file is marked as protected, refusing to save the decrypted data to disk since the decryption password contains "$auto"
+
+$ autoshell config decrypt
+Password: 6f6c19ca785f011a789c1893d96f68ad5b9851fbc5cfd21b20299c90402489c9 (hidden input)
+Config file decrypted successfully
+```
+
+</details>
 
 ### Actions
 
@@ -86,7 +130,7 @@ protected: true
 workflows:
   main: |-
     setLogFile autoshell.log
-    addReporter uptimeKuma https://example.com/api/push/oqQJiMo2DG
+    addReporter uptimeKuma https://yourdomain/api/push/oqQJiMo2DG
     runCommand backup-mysql mysqldump -u root -p4U5fUbmxtk myapp -r db.sql
     runWorkflow setup-restic
     runWorkflow setup-restic-storj
@@ -121,8 +165,10 @@ workflows:
 
 <summary>Sample runs</summary>
 
+<br />
+
 ```
-> autoshell run main
+$ autoshell run main
 --------------------------------------------------------------------------------
 Started at 2023-08-29T20:36:20.6646661+05:30
 --------------------------------------------------------------------------------
@@ -159,7 +205,7 @@ Ended at 2023-08-29T20:37:47.6888018+05:30 (took 87 seconds)
 ```
 
 ```
-> autoshell run restic ext-hdd snapshots -- --compact
+$ autoshell run restic ext-hdd snapshots -- --compact
 --------------------------------------------------------------------------------
 Started at 2023-08-29T20:43:15.7856331+05:30
 --------------------------------------------------------------------------------

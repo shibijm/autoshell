@@ -7,10 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"syscall"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 type configServiceFactory func(filePath string, getPassword ports.PasswordFactory) (ports.ConfigService, error)
@@ -33,6 +31,7 @@ func (c *cliController) Execute() error {
 	rootCmd := &cobra.Command{
 		Use:                "autoshell",
 		SilenceUsage:       true,
+		SilenceErrors:      true,
 		DisableSuggestions: true,
 		Version:            c.version,
 	}
@@ -44,16 +43,15 @@ func (c *cliController) Execute() error {
 			configService, err := c.createConfigService(configPath, utils.GenerateDevicePass)
 			if err != nil {
 				configService, err = c.createConfigService(configPath, func(id []byte) (string, error) {
-					password, _, err := c.readPassword("Password", id)
-					return password, err
+					return c.readPassword(id, false)
 				})
 				if err != nil {
 					return err
 				}
 			}
-			runner := c.createRunner(configService.GetConfig())
-			err = runner.Run(args[0], args[1:])
-			return err
+			config := configService.GetConfig()
+			runner := c.createRunner(config)
+			return runner.Run(args[0], args[1:])
 		},
 	}
 	configCmd := &cobra.Command{
@@ -75,11 +73,7 @@ func (c *cliController) Execute() error {
 			var devicePassVarUsed bool
 			err = configService.SaveToFileEncrypted(
 				func(id []byte) (string, error) {
-					password, devicePassVarUsed, err = c.readPassword("Password", id)
-					return password, err
-				},
-				func(id []byte) (string, error) {
-					password, _, err = c.readPassword("Confirm Password", id)
+					password, err, devicePassVarUsed = c.readPasswordAndDpvu(id, true)
 					return password, err
 				},
 			)
@@ -87,9 +81,9 @@ func (c *cliController) Execute() error {
 				return err
 			}
 			if devicePassVarUsed {
-				fmt.Println("Password contains device pass variable")
+				fmt.Printf("Password contains \"%s\"\n", c.devicePassVar)
 				if configService.GetConfig().Protected {
-					fmt.Println("Config file is marked as protected and hence cannot be saved decrypted if opened with a password containing device pass variable")
+					fmt.Printf("Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains \"%s\"\n", c.devicePassVar)
 					fmt.Println("Please store this explicit password safely: " + password)
 				}
 			}
@@ -106,14 +100,14 @@ func (c *cliController) Execute() error {
 			configService, err := c.createConfigService(configPath, func(id []byte) (string, error) {
 				var password string
 				var err error
-				password, devicePassVarUsed, err = c.readPassword("Password", id)
+				password, err, devicePassVarUsed = c.readPasswordAndDpvu(id, false)
 				return password, err
 			})
 			if err != nil {
 				return err
 			}
 			if configService.GetConfig().Protected && devicePassVarUsed {
-				return errors.New("config file is marked as protected, refusing to save decrypted as it was opened with a password containing device pass variable")
+				return fmt.Errorf("config file is marked as protected, refusing to save the decrypted data to disk since the decryption password contains \"%s\"", c.devicePassVar)
 			}
 			err = configService.SaveToFileDecrypted()
 			if err != nil {
@@ -131,24 +125,32 @@ func (c *cliController) Execute() error {
 	return rootCmd.Execute()
 }
 
-func (c *cliController) readPassword(prompt string, id []byte) (string, bool, error) {
-	fmt.Print(prompt + ": ")
-	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
-	if err == nil && len(passwordBytes) == 0 {
-		err = errors.New("password is empty")
-	}
+func (c *cliController) readPasswordAndDpvu(id []byte, confirm bool) (string, error, bool) {
+	password, err := utils.ReadInputHidden("Password")
 	if err != nil {
-		return "", false, err
+		return "", err, false
 	}
-	password := string(passwordBytes)
+	if confirm {
+		confirmationPassword, err := utils.ReadInputHidden("Confirm Password")
+		if err == nil && confirmationPassword != password {
+			err = errors.New("the two passwords didn't match")
+		}
+		if err != nil {
+			return "", err, false
+		}
+	}
 	if !strings.Contains(password, c.devicePassVar) {
-		return password, false, nil
+		return password, nil, false
 	}
 	devicePass, err := utils.GenerateDevicePass(id)
 	if err != nil {
-		return "", false, err
+		return "", err, false
 	}
 	password = strings.ReplaceAll(password, c.devicePassVar, devicePass)
-	return password, true, nil
+	return password, nil, true
+}
+
+func (c *cliController) readPassword(id []byte, confirm bool) (string, error) {
+	password, err, _ := c.readPasswordAndDpvu(id, confirm)
+	return password, err
 }
