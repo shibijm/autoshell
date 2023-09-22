@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ inputs.version || github.ref_name }}
 on:
   push:
     tags:
@@ -17,11 +18,6 @@ jobs:
     env:
       VERSION: ${{ inputs.version || github.ref_name }}
     steps:
-      - name: Abort if release already exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release view $VERSION |& grep "release not found"
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Set up Go
@@ -42,7 +38,7 @@ jobs:
             go build -ldflags "-s -w -X autoshell/utils.devicePassSeed=${{ secrets.DEVICE_PASS_SEED }}" -trimpath -o out/$GOOS-$GOARCH/
             cp README.md LICENSE COPYRIGHT NOTICE out/$GOOS-$GOARCH
           done
-      - name: Prepare release files
+      - name: Create release ZIP files
         run: |
           cd out
           for filename in *; do
@@ -51,7 +47,12 @@ jobs:
               zip -rm ${{ github.event.repository.name }}-$VERSION-$filename.zip ${{ github.event.repository.name }}
             fi
           done
-      - name: Release
+      - name: Delete existing GitHub release, if any
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release delete $VERSION --cleanup-tag --yes || true
+      - name: Release on GitHub
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
         with:
           tag_name: ${{ env.VERSION }}

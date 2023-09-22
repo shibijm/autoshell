@@ -321,11 +321,16 @@ func (r *runner) logSeparator() {
 
 func parseArgVars(args []string) *[]*variable {
 	variables := &[]*variable{}
-	for i, arg := range args {
-		setVariable(variables, strconv.Itoa(i+1), arg)
-	}
 	if len(args) > 0 {
-		setVariable(variables, "@", strings.Join(args, " "))
+		argsQuoted := []string{}
+		for i, arg := range args {
+			setVariable(variables, strconv.Itoa(i+1), arg)
+			if strings.Contains(arg, " ") {
+				arg = "\"" + arg + "\""
+			}
+			argsQuoted = append(argsQuoted, arg)
+		}
+		setVariable(variables, "@", strings.Join(argsQuoted, " "))
 	}
 	return variables
 }
