@@ -79,7 +79,7 @@ func (r *runner) Run(workflow string, args []string) error {
 }
 
 func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
-	if len(instruction) == 0 || instruction[0] == '#' {
+	if instruction == "" || instruction[0] == '#' {
 		return nil
 	}
 	tokens := r.tokenise(instruction, locals)
@@ -235,17 +235,23 @@ func (r *runner) tokenise(input string, variables *[]*variable) []string {
 	for _, v := range allVariables {
 		input = strings.ReplaceAll(input, "$"+v.name, v.value)
 	}
-	input = os.ExpandEnv(input)
+	input = os.Expand(input, getEnvVarOrDollar)
 	var tokens []string
 	var currentToken string
 	var withinQuotes rune
 	var lastChar rune
 	for _, char := range input {
-		if (char == '"' || char == '\'') && (lastChar == 0 || lastChar == ' ' || withinQuotes != 0) {
-			if withinQuotes == 0 {
-				withinQuotes = char
-			} else if withinQuotes == char {
-				withinQuotes = 0
+		if char == '"' || char == '\'' {
+			if lastChar == '\\' {
+				currentToken = strings.TrimSuffix(currentToken, "\\") + string(char)
+			} else if lastChar == 0 || lastChar == ' ' || withinQuotes != 0 {
+				if withinQuotes == 0 {
+					withinQuotes = char
+				} else if withinQuotes == char {
+					withinQuotes = 0
+				} else {
+					currentToken += string(char)
+				}
 			} else {
 				currentToken += string(char)
 			}
@@ -277,7 +283,10 @@ func (r *runner) report(elapsedSeconds int, errSummary string, errDetail string)
 			} else {
 				msg = "Finished successfully"
 			}
-			http.Get(fmt.Sprintf("%s?status=up&msg=%s&ping=%d", endpoint, url.QueryEscape(msg), elapsedSeconds))
+			_, err = http.Get(fmt.Sprintf("%s?status=up&msg=%s&ping=%d", endpoint, url.QueryEscape(msg), elapsedSeconds))
+			if err != nil {
+				break
+			}
 			var status string
 			if errDetail != "" {
 				status = "down"
@@ -351,4 +360,11 @@ func setVariable(variables *[]*variable, name string, value string) {
 	} else {
 		*variables = append(*variables, &variable{name, value})
 	}
+}
+
+func getEnvVarOrDollar(key string) string {
+	if key == "$" {
+		return "$"
+	}
+	return os.Getenv(key)
 }
