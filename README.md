@@ -123,6 +123,8 @@ Config file decrypted successfully
 - `print [args]`
 - `shiftArgVars`
 
+Append `!W` or `!L` to action names to restrict their execution to Windows or Linux respectively.
+
 ### Example
 
 ```yml

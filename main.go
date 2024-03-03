@@ -10,7 +10,7 @@ import (
 	"unicode"
 )
 
-const version = "1.0.3"
+const version = "1.1.0"
 
 func main() {
 	crypter := crypto.NewAesGcmCrypter()

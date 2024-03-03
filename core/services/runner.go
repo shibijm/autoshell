@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,6 +85,22 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 	}
 	tokens := r.tokenise(instruction, locals)
 	action := tokens[0]
+	actionSplit := strings.Split(action, "!")
+	if len(actionSplit) == 2 {
+		action = actionSplit[0]
+		platform := actionSplit[1]
+		if platform == "W" {
+			if runtime.GOOS != "windows" {
+				return nil
+			}
+		} else if platform == "L" {
+			if runtime.GOOS != "linux" {
+				return nil
+			}
+		} else {
+			return nil
+		}
+	}
 	args := tokens[1:]
 	var err error
 	switch action {
