@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +27,22 @@ func NewConfigService(crypter ports.Crypter, filePath string, getPassword ports.
 	encryptionMark := []byte{0x17, 0x6F, 0x95, 0xF3, 0xF3, 0x81, 0x32, 0x6F}
 	encryptionMarkLength := len(encryptionMark)
 	idLength := 32
-	fileData, err := os.ReadFile(filePath)
+	filePaths := []string{filePath}
+	binPath, err := os.Executable()
+	if err == nil {
+		binDirPath := filepath.Dir(binPath)
+		filePaths = append(filePaths, filepath.Join(binDirPath, filePath))
+	}
+	if runtime.GOOS == "linux" {
+		filePaths = append(filePaths, filepath.Join("/etc/autoshell", filePath)) // TODO: Derive path
+	}
+	var fileData []byte
+	for _, filePath = range filePaths {
+		fileData, err = os.ReadFile(filePath)
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
