@@ -6,6 +6,7 @@ import (
 	"autoshell/utils"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -81,7 +82,7 @@ func (c *cliController) Execute() error {
 				return err
 			}
 			if devicePassVarUsed {
-				fmt.Printf("Password contains \"%s\"\n", c.devicePassVar)
+				fmt.Printf("Encryption password contains \"%s\"\n", c.devicePassVar)
 				if configService.GetConfig().Protected {
 					fmt.Printf("Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains \"%s\"\n", c.devicePassVar)
 					fmt.Println("Please store this explicit password safely: " + password)
@@ -126,17 +127,21 @@ func (c *cliController) Execute() error {
 }
 
 func (c *cliController) readPasswordAndDpvu(id []byte, confirm bool) (string, error, bool) {
-	password, err := utils.ReadInputHidden("Password")
-	if err != nil {
-		return "", err, false
-	}
-	if confirm {
-		confirmationPassword, err := utils.ReadInputHidden("Confirm Password")
-		if err == nil && confirmationPassword != password {
-			err = errors.New("the two passwords didn't match")
-		}
+	password := os.Getenv("AUTOSHELL_PASSWORD")
+	if password == "" {
+		var err error
+		password, err = utils.ReadInputHidden("Password")
 		if err != nil {
 			return "", err, false
+		}
+		if confirm {
+			confirmationPassword, err := utils.ReadInputHidden("Confirm Password")
+			if err == nil && confirmationPassword != password {
+				err = errors.New("the two passwords didn't match")
+			}
+			if err != nil {
+				return "", err, false
+			}
 		}
 	}
 	if !strings.Contains(password, c.devicePassVar) {
