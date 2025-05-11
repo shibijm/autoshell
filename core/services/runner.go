@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,9 +46,9 @@ func (r *runner) Run(workflow string, args []string) error {
 	r.log("Started at %s", start.Format(time.RFC3339Nano))
 	err := r.runInstruction("runWorkflow "+workflow, parseArgVars(args))
 	end := time.Now()
-	elapsedSeconds := int(math.Round(end.Sub(start).Seconds()))
+	elapsedMs := end.Sub(start).Milliseconds()
 	r.logSeparator()
-	r.log("Ended at %s (took %d seconds)", end.Format(time.RFC3339Nano), elapsedSeconds)
+	r.log("Ended at %s after %dms", end.Format(time.RFC3339Nano), elapsedMs)
 	errCausedAbort := err != nil
 	if len(r.failedCommands) > 0 {
 		failedCommandsErr := fmt.Errorf("failed commands: %s", strings.Join(r.failedCommands, ", "))
@@ -74,7 +73,7 @@ func (r *runner) Run(workflow string, args []string) error {
 		r.log("%s", errDetail)
 		err = fmt.Errorf("runner %s", strings.ToLower(errSummary))
 	}
-	r.report(elapsedSeconds, errSummary, errDetail)
+	r.report(elapsedMs, errSummary, errDetail)
 	r.logSeparator()
 	return err
 }
@@ -288,7 +287,7 @@ func (r *runner) tokenise(input string, variables *[]*variable) []string {
 	return tokens
 }
 
-func (r *runner) report(elapsedSeconds int, errSummary string, errDetail string) {
+func (r *runner) report(elapsedMs int64, errSummary string, errDetail string) {
 	for _, reporter := range r.reporters {
 		var err error
 		switch reporter["type"] {
@@ -300,7 +299,7 @@ func (r *runner) report(elapsedSeconds int, errSummary string, errDetail string)
 			} else {
 				msg = "Finished successfully"
 			}
-			_, err = http.Get(fmt.Sprintf("%s?status=up&msg=%s&ping=%d", endpoint, url.QueryEscape(msg), elapsedSeconds))
+			_, err = http.Get(fmt.Sprintf("%s?status=up&msg=%s&ping=%d", endpoint, url.QueryEscape(msg), elapsedMs))
 			if err != nil {
 				break
 			}
@@ -311,7 +310,7 @@ func (r *runner) report(elapsedSeconds int, errSummary string, errDetail string)
 			} else {
 				status = "up"
 			}
-			_, err = http.Get(fmt.Sprintf("%s?status=%s&msg=%s&ping=%d", endpoint, status, url.QueryEscape(msg), elapsedSeconds))
+			_, err = http.Get(fmt.Sprintf("%s?status=%s&msg=%s&ping=%d", endpoint, status, url.QueryEscape(msg), elapsedMs))
 		default:
 			err = errors.New("unsupported reporter type")
 		}
