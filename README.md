@@ -1,12 +1,13 @@
 # Autoshell
 
-> [!NOTE]
-> This README/documentation is incomplete.
-
 Autoshell is a command-line utility facilitating automatic execution of shell commands.
 
 [![Latest Release](https://img.shields.io/github/v/release/shibijm/autoshell?label=Latest%20Release)](https://github.com/shibijm/autoshell/releases/latest)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/shibijm/autoshell/release.yml?label=Build&logo=github)](https://github.com/shibijm/autoshell/actions/workflows/release.yml)
+
+## Download
+
+Downloadable builds are available on the [releases page](https://github.com/shibijm/autoshell/releases).
 
 ## Usage
 
@@ -66,9 +67,9 @@ Config file encryption employs AES-256 in GCM mode. The encryption key is derive
 
 Instances of the string `$auto` within passwords will be substituted with a device pass, which is the SHA-256 hash of the combination of machine ID, hardcoded randomness and a random config file ID generated afresh each time before encrypting a config file.
 
-The 'run' command will attempt to automatically decrypt the config file using password `$auto` before prompting for manual password input. Such an attempt would be successful only on the machine that initially encrypted the config file. Config files used for fully automated runs can be obfuscated by using this feature.
+The `run` command will attempt to automatically decrypt the config file using password `$auto` before prompting for manual password input. Such an attempt would be successful only on the machine that initially encrypted the config file. Config files used for fully automated runs can be obfuscated by using this feature.
 
-If a config file is marked as protected, the 'decrypt' command will refuse to save the decrypted data to disk if the decryption password contains `$auto`. In such cases, the underlying explicit password is required, which is displayed only once right after encryption.
+If a config file is marked as protected, the `decrypt` command will refuse to save the decrypted data to disk if the decryption password contains `$auto`. In such cases, the underlying explicit password is required, which is displayed only once right after encryption.
 
 <details>
 
@@ -85,18 +86,22 @@ workflows:
 $ autoshell config encrypt
 Password: $auto (hidden input)
 Confirm Password: $auto (hidden input)
-Password contains "$auto"
+Encryption password contains "$auto"
 Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains "$auto"
-Please store this explicit password safely: 6f6c19ca785f011a789c1893d96f68ad5b9851fbc5cfd21b20299c90402489c9
+Please store this explicit password safely: 7887c80ba98ffce76d5650bce0cb56b12b56d81f0354201a7f9f67b194ebc019
 Config file encrypted successfully
+
+$ cat config.yml
+o□□□□2o□r□k{□?;□□<□lKO□□□h□,□□{z□       ULX1
+□□v[□s3□&\□□R□y                             □□□"□□□n□□[e□□□H□□:Xs□□□□|□□j□z□□□rY□□>□c□□2□<U□H□□□(BO□Պ□□2v~□□\f□□□□ꕦ□□
 
 $ autoshell run hello
 --------------------------------------------------------------------------------
-Started at 2023-08-31T21:52:14.7602479+05:30
+Started at 2025-05-11T19:18:13.1756292+05:30
 --------------------------------------------------------------------------------
 Hello world
 --------------------------------------------------------------------------------
-Ended at 2023-08-31T21:52:14.8457359+05:30 (took 0 seconds)
+Ended at 2025-05-11T19:18:13.2735076+05:30 after 97ms
 --------------------------------------------------------------------------------
 
 $ autoshell config decrypt
@@ -104,8 +109,13 @@ Password: $auto (hidden input)
 Error: Config file is marked as protected, refusing to save the decrypted data to disk since the decryption password contains "$auto"
 
 $ autoshell config decrypt
-Password: 6f6c19ca785f011a789c1893d96f68ad5b9851fbc5cfd21b20299c90402489c9 (hidden input)
+Password: 7887c80ba98ffce76d5650bce0cb56b12b56d81f0354201a7f9f67b194ebc019 (hidden input)
 Config file decrypted successfully
+
+$ cat config.yml
+protected: true
+workflows:
+  hello: runCommand - echo Hello world
 ```
 
 </details>
@@ -124,6 +134,10 @@ Config file decrypted successfully
 - `shiftArgVars`
 
 Append `!W` or `!L` to action names to restrict their execution to Windows or Linux respectively.
+
+### Variable Substitution
+
+`$x` would get substituted with the value of variable `x`.
 
 ### Example
 
@@ -202,7 +216,7 @@ Command ID: ext-hdd-backup-documents
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
-Ended at 2023-08-29T20:37:47.6888018+05:30 (took 87 seconds)
+Ended at 2023-08-29T20:37:47.6888018+05:30 after 87568ms
 --------------------------------------------------------------------------------
 ```
 
@@ -222,7 +236,7 @@ ID        Time                 Host    Tags
 ---------------------------------------------
 3 snapshots
 --------------------------------------------------------------------------------
-Ended at 2023-08-29T20:43:20.5029457+05:30 (took 5 seconds)
+Ended at 2023-08-29T20:43:20.5029457+05:30 after 5542ms
 --------------------------------------------------------------------------------
 ```
 

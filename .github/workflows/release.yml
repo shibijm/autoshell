@@ -10,27 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
       - name: Test
-        run: go test -v ./...
+        run: make test
       - name: Build
-        run: |
-          export CGO_ENABLED=0
-          goos=(windows linux linux)
-          goarch=(amd64 amd64 arm64)
-          for i in ${!goos[@]}; do
-            export GOOS=${goos[$i]}
-            export GOARCH=${goarch[$i]}
-            go build -ldflags "-s -w -X autoshell/utils.devicePassSeed=${{ secrets.DEVICE_PASS_SEED }}" -trimpath -o out/$GOOS-$GOARCH/
-            cp README.md LICENSE COPYRIGHT NOTICE out/$GOOS-$GOARCH
-          done
+        env:
+          DEVICE_PASS_SEED: ${{ secrets.DEVICE_PASS_SEED }}
+        run: make build
       - name: Create release ZIP files
         run: |
           cd out
@@ -41,8 +36,13 @@ jobs:
             fi
           done
       - name: Release on GitHub
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631
         with:
           tag_name: ${{ github.ref_name }}
+          draft: false
           generate_release_notes: true
           files: out/*.zip
+      - name: Generate signed build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: out/*.zip
