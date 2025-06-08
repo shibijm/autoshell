@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -33,11 +32,10 @@ type runner struct {
 	logFilePath          string
 	logFileContentBuffer string
 	reporters            []map[string]string
-	logReplacements      map[*regexp.Regexp]string
 }
 
 func NewRunner(config *entities.Config) ports.Runner {
-	return &runner{config, &[]*variable{}, []string{}, []int{}, "", "", []map[string]string{}, map[*regexp.Regexp]string{regexp.MustCompile(`((?:rclone:)?:(?:storj|sftp),).*?(:\S)`): "$1***$2"}}
+	return &runner{config, &[]*variable{}, []string{}, []int{}, "", "", []map[string]string{}}
 }
 
 func (r *runner) Run(workflow string, args []string) error {
@@ -322,9 +320,6 @@ func (r *runner) report(elapsedMs int64, errSummary string, errDetail string) {
 
 func (r *runner) logRaw(format string, a ...any) {
 	text := fmt.Sprintf(format, a...)
-	for re, replacement := range r.logReplacements {
-		text = re.ReplaceAllString(text, replacement)
-	}
 	fmt.Print(text)
 	if r.logFilePath != "" {
 		err := utils.AppendToFile(r.logFilePath, text)

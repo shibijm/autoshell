@@ -147,34 +147,36 @@ workflows:
   main: |-
     setLogFile autoshell.log
     addReporter uptimeKuma https://yourdomain/api/push/oqQJiMo2DG
-    runCommand backup-mysql mysqldump -u root -p4U5fUbmxtk myapp -r db.sql
-    runWorkflow setup-restic
-    runWorkflow setup-restic-storj
+    runCommand create-sql-dump mysqldump -u root -p4U5fUbmxtk myapp -r db.sql
+    runWorkflow setup-restic b2
     runWorkflow restic-backup
-    runWorkflow setup-restic-ext-hdd
+    runWorkflow setup-restic ext-hdd
     runWorkflow restic-backup
+    runCommand delete-sql-dump rm db.sql
   restic-backup: |-
-    runCommand $destination-backup-mysql $restic backup db.sql
-    runCommand $destination-backup-code $restic backup D:\Code
-    runCommand $destination-backup-documents $restic backup D:\Documents
+    runCommand $resticDestination-backup-db $restic backup db.sql
+    runCommand $resticDestination-backup-code $restic backup D:\Code
+    runCommand $resticDestination-backup-documents $restic backup D:\Documents
   restic: |-
     runWorkflow setup-restic
-    runWorkflow setup-restic-$1
     shiftArgVars
-    runCommand $destination $restic $@
+    runCommand restic-$resticDestination $restic $@
   setup-restic: |-
     setEnvVar RCLONE_CONFIG notfound
+    setEnvVar RCLONE_FAST_LIST true
     setEnvVar RCLONE_BWLIMIT 8M
-    setGlobalVar restic "restic --limit-download 8192 --limit-upload 8192"
     setIgnoredErrorCodes [3]
-  setup-restic-storj: |-
-    setGlobalVar destination storj
-    setEnvVar RESTIC_REPOSITORY rclone::storj,access_grant=sA1PTsVFRR:restic
-    setEnvVar RESTIC_PASSWORD dSeMFHqluz
+    setGlobalVar resticDestination $1
+    runWorkflow setup-restic-$resticDestination
+    setGlobalVar restic "restic --limit-download 8192 --limit-upload 8192"
+  setup-restic-b2: |-
+    setEnvVar RCLONE_B2_ACCOUNT 2No2MBrvcnNzV4U4rQs2rq27h
+    setEnvVar RCLONE_B2_KEY 7P7TWhWLK56P53zTRqZQw2aFriJcD6X
+    setEnvVar RESTIC_REPOSITORY rclone::b2:restic
+    setEnvVar RESTIC_PASSWORD k3Tw883j8QqMdDyG2TPt6jfo9iZR9hu7M4Zo43zE7vYf3brDjtkAhxF3T9DoHkjj
   setup-restic-ext-hdd: |-
-    setGlobalVar destination ext-hdd
     setEnvVar RESTIC_REPOSITORY F:\Restic
-    setEnvVar RESTIC_PASSWORD 3seMRdKnS7
+    setEnvVar RESTIC_PASSWORD LPKcYEiF9CKRDxWf3B7o44SdAKZJfu34p8DeY7JWzRLjCmS9ji5mfjev5Jj2pJUt
 ```
 
 <details>
@@ -186,25 +188,25 @@ workflows:
 ```
 $ autoshell run main
 --------------------------------------------------------------------------------
-Started at 2023-08-29T20:36:20.6646661+05:30
+Started at 2025-05-30T20:36:20.6646661+05:30
 --------------------------------------------------------------------------------
-Command ID: backup-mysql
---------------------------------------------------------------------------------
-[command output]
---------------------------------------------------------------------------------
-Command ID: storj-backup-mysql
+Command ID: create-sql-dump
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
-Command ID: storj-backup-code
+Command ID: b2-backup-db
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
-Command ID: storj-backup-documents
+Command ID: b2-backup-code
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
-Command ID: ext-hdd-backup-mysql
+Command ID: b2-backup-documents
+--------------------------------------------------------------------------------
+[command output]
+--------------------------------------------------------------------------------
+Command ID: ext-hdd-backup-db
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
@@ -216,27 +218,31 @@ Command ID: ext-hdd-backup-documents
 --------------------------------------------------------------------------------
 [command output]
 --------------------------------------------------------------------------------
-Ended at 2023-08-29T20:37:47.6888018+05:30 after 87568ms
+Command ID: delete-sql-dump
+--------------------------------------------------------------------------------
+[command output]
+--------------------------------------------------------------------------------
+Ended at 2025-05-30T20:37:47.6888018+05:30 after 87024ms
 --------------------------------------------------------------------------------
 ```
 
 ```
 $ autoshell run restic ext-hdd snapshots -- --compact
 --------------------------------------------------------------------------------
-Started at 2023-08-29T20:43:15.7856331+05:30
+Started at 2025-05-30T20:43:15.7856331+05:30
 --------------------------------------------------------------------------------
 Command ID: ext-hdd
 --------------------------------------------------------------------------------
 repository 219fdcf6 opened (version 2, compression level auto)
 ID        Time                 Host    Tags
 ---------------------------------------------
-9476f199  2023-08-29 20:37:16  server
-156ff78b  2023-08-29 20:37:28  server
-41432ec6  2023-08-29 20:37:45  server
+9476f199  2025-05-30 20:37:16  server
+156ff78b  2025-05-30 20:37:28  server
+41432ec6  2025-05-30 20:37:45  server
 ---------------------------------------------
 3 snapshots
 --------------------------------------------------------------------------------
-Ended at 2023-08-29T20:43:20.5029457+05:30 after 5542ms
+Ended at 2025-05-30T20:43:20.5029457+05:30 after 4717ms
 --------------------------------------------------------------------------------
 ```
 
