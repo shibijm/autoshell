@@ -42,7 +42,7 @@ func (r *runner) Run(workflow string, args []string) error {
 	r.logSeparator()
 	start := time.Now()
 	r.log("Started at %s", start.Format(time.RFC3339Nano))
-	err := r.runInstruction("runWorkflow "+workflow, parseArgVars(args))
+	err := r.runInstruction("runWorkflow "+workflow, parseArgVars(args), false)
 	end := time.Now()
 	elapsedMs := end.Sub(start).Milliseconds()
 	r.logSeparator()
@@ -76,7 +76,7 @@ func (r *runner) Run(workflow string, args []string) error {
 	return err
 }
 
-func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
+func (r *runner) runInstruction(instruction string, locals *[]*variable, ignoreFailures bool) error {
 	if instruction == "" || instruction[0] == '#' {
 		return nil
 	}
@@ -85,17 +85,22 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 	actionSplit := strings.Split(action, "!")
 	if len(actionSplit) == 2 {
 		action = actionSplit[0]
-		platform := actionSplit[1]
-		if platform == "W" {
-			if runtime.GOOS != "windows" {
-				return nil
+		modifiers := strings.Split(actionSplit[1], ",")
+		for _, modifier := range modifiers {
+			switch modifier {
+			case "W":
+				if runtime.GOOS != "windows" {
+					return nil
+				}
+			case "L":
+				if runtime.GOOS != "linux" {
+					return nil
+				}
+			case "ignoreFailures":
+				ignoreFailures = true
+			default:
+				return fmt.Errorf("invalid modifier '%s'", modifier)
 			}
-		} else if platform == "L" {
-			if runtime.GOOS != "linux" {
-				return nil
-			}
-		} else {
-			return nil
 		}
 	}
 	args := tokens[1:]
@@ -118,7 +123,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			}
 		}
 		for _, instruction := range strings.Split(instructions, "\n") {
-			err = r.runInstruction(instruction, newLocals)
+			err = r.runInstruction(instruction, newLocals, ignoreFailures)
 			if err != nil {
 				return err
 			}
@@ -158,7 +163,7 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 			var output []byte
 			output, err = cmd.CombinedOutput()
 			if !silent2 {
-				r.logRaw(string(output))
+				r.logRaw("%s", string(output))
 			}
 		} else {
 			if !silent2 {
@@ -182,7 +187,9 @@ func (r *runner) runInstruction(instruction string, locals *[]*variable) error {
 				}
 			}
 			r.log("%s failed: %s", action, err)
-			r.failedCommands = append(r.failedCommands, commandID)
+			if !ignoreFailures {
+				r.failedCommands = append(r.failedCommands, commandID)
+			}
 		}
 	case "setLogFile":
 		if err = utils.CheckArgsExact(args, 1); err != nil {
@@ -259,11 +266,12 @@ func (r *runner) tokenise(input string, variables *[]*variable) []string {
 			if lastChar == '\\' {
 				currentToken = strings.TrimSuffix(currentToken, "\\") + string(char)
 			} else if lastChar == 0 || lastChar == ' ' || withinQuotes != 0 {
-				if withinQuotes == 0 {
+				switch withinQuotes {
+				case 0:
 					withinQuotes = char
-				} else if withinQuotes == char {
+				case char:
 					withinQuotes = 0
-				} else {
+				default:
 					currentToken += string(char)
 				}
 			} else {
