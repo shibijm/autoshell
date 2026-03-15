@@ -1,161 +1,118 @@
 package cli
 
 import (
-	"autoshell/core/entities"
-	"autoshell/core/ports"
-	"autoshell/utils"
+	"autoshell/config"
+	"autoshell/runner"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
-type configServiceFactory func(filePath string, getPassword ports.PasswordFactory) (ports.ConfigService, error)
+var version = "0.0.0-dev"
 
-type runnerFactory func(config *entities.Config) ports.Runner
-
-type cliController struct {
-	version             string
-	createConfigService configServiceFactory
-	createRunner        runnerFactory
-	devicePassVar       string
-}
-
-func NewCliController(version string, createConfigService configServiceFactory, createRunner runnerFactory) *cliController {
-	return &cliController{version, createConfigService, createRunner, "$auto"}
-}
-
-func (c *cliController) Execute() error {
-	var configPath string
-	rootCmd := &cobra.Command{
-		Use:                "autoshell",
-		SilenceUsage:       true,
-		SilenceErrors:      true,
-		DisableSuggestions: true,
-		Version:            c.version,
-	}
-	runCmd := &cobra.Command{
-		Use:   "run [workflow] [args]",
-		Short: "Run a workflow",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			configService, err := c.createConfigService(configPath, utils.GenerateDevicePass)
-			if err != nil {
-				configService, err = c.createConfigService(configPath, func(id []byte) (string, error) {
-					return c.readPassword(id, false)
-				})
-				if err != nil {
-					return err
-				}
-			}
-			config := configService.GetConfig()
-			runner := c.createRunner(config)
-			return runner.Run(args[0], args[1:])
-		},
-	}
-	configCmd := &cobra.Command{
-		Use:   "config",
-		Short: "Config file management",
-	}
-	configEncryptCmd := &cobra.Command{
-		Use:   "encrypt",
-		Short: "Encrypt the config file",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			configService, err := c.createConfigService(configPath, func(id []byte) (string, error) {
-				return "", errors.New("config file is already encrypted")
-			})
-			if err != nil {
-				return err
-			}
-			var password string
-			var devicePassVarUsed bool
-			err = configService.SaveToFileEncrypted(
-				func(id []byte) (string, error) {
-					password, err, devicePassVarUsed = c.readPasswordAndDpvu(id, true)
-					return password, err
-				},
-			)
-			if err != nil {
-				return err
-			}
-			if devicePassVarUsed {
-				fmt.Printf("Encryption password contains \"%s\"\n", c.devicePassVar)
-				if configService.GetConfig().Protected {
-					fmt.Printf("Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains \"%s\"\n", c.devicePassVar)
-					fmt.Println("Please store this explicit password safely: " + password)
-				}
-			}
-			fmt.Println("Config file encrypted successfully")
-			return nil
-		},
-	}
-	configDecryptCmd := &cobra.Command{
-		Use:   "decrypt",
-		Short: "Decrypt the config file",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var devicePassVarUsed bool
-			configService, err := c.createConfigService(configPath, func(id []byte) (string, error) {
-				var password string
-				var err error
-				password, err, devicePassVarUsed = c.readPasswordAndDpvu(id, false)
-				return password, err
-			})
-			if err != nil {
-				return err
-			}
-			if configService.GetConfig().Protected && devicePassVarUsed {
-				return fmt.Errorf("config file is marked as protected, refusing to save the decrypted data to disk since the decryption password contains \"%s\"", c.devicePassVar)
-			}
-			err = configService.SaveToFileDecrypted()
-			if err != nil {
-				return err
-			}
-			fmt.Println("Config file decrypted successfully")
-			return nil
-		},
-	}
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
+func Run() error {
 	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yml", "config file path")
-	rootCmd.AddCommand(runCmd, configCmd)
-	configCmd.AddCommand(configEncryptCmd, configDecryptCmd)
+	rootCmd.AddCommand(runCmd, encryptCmd, decryptCmd)
 	return rootCmd.Execute()
 }
 
-func (c *cliController) readPasswordAndDpvu(id []byte, confirm bool) (string, error, bool) {
-	password := os.Getenv("AUTOSHELL_PASSWORD")
-	if password == "" {
-		var err error
-		password, err = utils.ReadInputHidden("Password")
-		if err != nil {
-			return "", err, false
-		}
-		if confirm {
-			confirmationPassword, err := utils.ReadInputHidden("Confirm Password")
-			if err == nil && confirmationPassword != password {
-				err = errors.New("the two passwords didn't match")
-			}
-			if err != nil {
-				return "", err, false
-			}
-		}
-	}
-	if !strings.Contains(password, c.devicePassVar) {
-		return password, nil, false
-	}
-	devicePass, err := utils.GenerateDevicePass(id)
-	if err != nil {
-		return "", err, false
-	}
-	password = strings.ReplaceAll(password, c.devicePassVar, devicePass)
-	return password, nil, true
+var configPath string
+
+var rootCmd = &cobra.Command{
+	Use:           "autoshell",
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
+	Version: version,
 }
 
-func (c *cliController) readPassword(id []byte, confirm bool) (string, error) {
-	password, err, _ := c.readPasswordAndDpvu(id, confirm)
-	return password, err
+var runCmd = &cobra.Command{
+	Use:   "run <workflow> [args...]",
+	Short: "Run a workflow",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Get(configPath, readPasswordOnce)
+		if err != nil {
+			return err
+		}
+		return runner.New(cfg).RunWorkflow(args)
+	},
+}
+
+var encryptCmd = &cobra.Command{
+	Use:   "encrypt",
+	Short: "Encrypt the config file",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		message, err := config.Encrypt(configPath, readPasswordTwice)
+		if err != nil {
+			return err
+		}
+		if message != "" {
+			fmt.Println(message)
+		}
+		fmt.Println("Config file encrypted successfully")
+		return nil
+	},
+}
+
+var decryptCmd = &cobra.Command{
+	Use:   "decrypt",
+	Short: "Decrypt the config file",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := config.Decrypt(configPath, readPasswordOnce); err != nil {
+			return err
+		}
+		fmt.Println("Config file decrypted successfully")
+		return nil
+	},
+}
+
+func readPasswordOnce() (string, error) {
+	return readPassword(false)
+}
+
+func readPasswordTwice() (string, error) {
+	return readPassword(true)
+}
+
+func readPassword(requiresConfirmation bool) (string, error) {
+	if password := os.Getenv("AUTOSHELL_PASSWORD"); password != "" {
+		return password, nil
+	}
+	password, err := readHiddenInput("Password")
+	if err != nil {
+		return "", err
+	}
+	if !requiresConfirmation {
+		return password, nil
+	}
+	confirmationPassword, err := readHiddenInput("Confirm Password")
+	if err != nil {
+		return "", err
+	}
+	if confirmationPassword != password {
+		return "", errors.New("the two passwords don't match")
+	}
+	return password, nil
+}
+
+func readHiddenInput(prompt string) (string, error) {
+	fmt.Print(prompt + ": ")
+	input, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec
+	fmt.Println()
+	if err != nil {
+		return "", err
+	}
+	if len(input) == 0 {
+		return "", errors.New("input is empty")
+	}
+	return string(input), nil
 }

@@ -11,12 +11,13 @@ Downloadable builds are available on the [releases page](https://github.com/shib
 
 ## Usage
 
-```
+```text
 Usage:
   autoshell [command]
 
 Available Commands:
-  config      Config file management
+  decrypt     Decrypt the config file
+  encrypt     Encrypt the config file
   run         Run a workflow
 
 Flags:
@@ -27,49 +28,17 @@ Flags:
 Use "autoshell [command] --help" for more information about a command.
 ```
 
-```
-Config file management
-
-Usage:
-  autoshell config [command]
-
-Available Commands:
-  decrypt     Decrypt the config file
-  encrypt     Encrypt the config file
-
-Flags:
-  -h, --help   help for config
-
-Global Flags:
-  -c, --config string   config file path (default "config.yml")
-
-Use "autoshell config [command] --help" for more information about a command.
-```
-
-```
-Run a workflow
-
-Usage:
-  autoshell run [workflow] [args] [flags]
-
-Flags:
-  -h, --help   help for run
-
-Global Flags:
-  -c, --config string   config file path (default "config.yml")
-```
-
 ## Configuration - `config.yml`
 
 ### Encryption
 
 Config file encryption employs AES-256 in GCM mode. The encryption key is derived using Argon2id.
 
-Instances of the string `$auto` within passwords will be substituted with a device pass, which is the SHA-256 hash of the combination of machine ID, hardcoded randomness and a random config file ID generated afresh each time before encrypting a config file.
+Instances of `$DP` within passwords will be substituted with a device pass, derived using `sha256(machineId + devicePassSeed + salt)`.
 
-The `run` command will attempt to automatically decrypt the config file using password `$auto` before prompting for manual password input. Such an attempt would be successful only on the machine that initially encrypted the config file. Config files used for fully automated runs can be obfuscated by using this feature.
+The `run` command will attempt to automatically decrypt the config file using the device pass before prompting for manual password input. Such an attempt would be successful only on the machine that initially encrypted the config file. Config files used for fully automated runs can be obfuscated by using this feature.
 
-If a config file is marked as protected, the `decrypt` command will refuse to save the decrypted data to disk if the decryption password contains `$auto`. In such cases, the underlying explicit password is required, which is displayed only once right after encryption.
+If a config file is marked as protected, the `decrypt` command will refuse to save the decrypted data to disk if the decryption password contains `$DP`. In such cases, `$DP` has to be substituted with its actual value, which is displayed only once during encryption.
 
 <details>
 
@@ -77,23 +46,21 @@ If a config file is marked as protected, the `decrypt` command will refuse to sa
 
 <br />
 
-```
+```text
 $ cat config.yml
 protected: true
 workflows:
   hello: runCommand - echo Hello world
 
-$ autoshell config encrypt
-Password: $auto (hidden input)
-Confirm Password: $auto (hidden input)
-Encryption password contains "$auto"
-Config file is marked as protected and hence cannot be saved after decryption if the decryption password contains "$auto"
-Please store this explicit password safely: 7887c80ba98ffce76d5650bce0cb56b12b56d81f0354201a7f9f67b194ebc019
+$ autoshell encrypt
+Password: $DP (hidden input)
+Confirm Password: $DP (hidden input)
+$DP = e2a7e8ee355591e1d5f80d19bcb34e91936e08b061b699c7682aadd83c6e9e0c
+Config file is marked as protected and hence cannot be saved decrypted without substituting "$DP"
 Config file encrypted successfully
 
 $ cat config.yml
-o□□□□2o□r□k{□?;□□<□lKO□□□h□,□□{z□       ULX1
-□□v[□s3□&\□□R□y                             □□□"□□□n□□[e□□□H□□:Xs□□□□|□□j□z□□□rY□□>□c□□2□<U□H□□□(BO□Պ□□2v~□□\f□□□□ꕦ□□
+}%␦□□)□+w□□*□□`□□Z□□□□B\□□a□□`P_sK□□V□WgYFw]□dD□DyD□B□P;b□\□@-□B□□□y□'□□□
 
 $ autoshell run hello
 --------------------------------------------------------------------------------
@@ -104,40 +71,41 @@ Hello world
 Ended at 2025-05-11T19:18:13.2735076+05:30 after 97ms
 --------------------------------------------------------------------------------
 
-$ autoshell config decrypt
-Password: $auto (hidden input)
-Error: Config file is marked as protected, refusing to save the decrypted data to disk since the decryption password contains "$auto"
+$ autoshell decrypt
+Password: $DP (hidden input)
+Error: file is protected and the password contains "$DP"
 
-$ autoshell config decrypt
-Password: 7887c80ba98ffce76d5650bce0cb56b12b56d81f0354201a7f9f67b194ebc019 (hidden input)
+$ autoshell decrypt
+Password: e2a7e8ee355591e1d5f80d19bcb34e91936e08b061b699c7682aadd83c6e9e0c (hidden input)
 Config file decrypted successfully
-
-$ cat config.yml
-protected: true
-workflows:
-  hello: runCommand - echo Hello world
 ```
 
 </details>
 
 ### Actions
 
-- `runWorkflow [workflow] [args]`
-- `setEnvVar [name] [value]`
-- `setGlobalVar [name] [value]`
-- `setLocalVar [name] [value]`
-- `runCommand [commandID] [command] [args]`
-- `setLogFile [path]`
-- `addReporter uptimeKuma [url]`
-- `setIgnoredErrorCodes [codes]`
-- `print [args]`
-- `shiftArgVars`
+- `runWorkflow <workflow> [args...]`
+- `setEnvVar <name> <value>`
+- `setGlobalVar <name> <value>`
+- `setLocalVar <name> <value>`
+- `runCommand <commandId> <command> [args...]`
+- `setLogFile <path>`
+- `addReporter <kind> <endpoint>`
+- `setIgnoredExitCodes <codes: []int>`
+- `print [args...]`
+- `shiftArgs`
 
-Append `!W` or `!L` to action names to restrict their execution to Windows or Linux respectively.
+Append modifiers to action names using `!`. Separate multiple modifiers with commas.
+
+- `*!W`: Restrict execution to Windows
+- `*!L`: Restrict execution to Linux
+- `runCommand!hideCommandId`
+- `runCommand!retries=n`: Retry`n` times on failure
+- `runCommand!ignoreFailures`: Ignore failures (after retries)
 
 ### Variable Substitution
 
-`$x` would get substituted with the value of variable `x`.
+`$x` gets substituted with the value of variable `x`.
 
 ### Example
 
@@ -158,14 +126,14 @@ workflows:
     runCommand $resticDestination-backup-code $restic backup D:\Code
     runCommand $resticDestination-backup-documents $restic backup D:\Documents
   restic: |-
-    runWorkflow setup-restic
-    shiftArgVars
+    runWorkflow setup-restic $1
+    shiftArgs
     runCommand restic-$resticDestination $restic $@
   setup-restic: |-
     setEnvVar RCLONE_CONFIG notfound
     setEnvVar RCLONE_FAST_LIST true
     setEnvVar RCLONE_BWLIMIT 8M
-    setIgnoredErrorCodes [3]
+    setIgnoredExitCodes [3]
     setGlobalVar resticDestination $1
     runWorkflow setup-restic-$resticDestination
     setGlobalVar restic "restic --limit-download 8192 --limit-upload 8192"
@@ -185,7 +153,7 @@ workflows:
 
 <br />
 
-```
+```text
 $ autoshell run main
 --------------------------------------------------------------------------------
 Started at 2025-05-30T20:36:20.6646661+05:30
@@ -226,7 +194,7 @@ Ended at 2025-05-30T20:37:47.6888018+05:30 after 87024ms
 --------------------------------------------------------------------------------
 ```
 
-```
+```text
 $ autoshell run restic ext-hdd snapshots -- --compact
 --------------------------------------------------------------------------------
 Started at 2025-05-30T20:43:15.7856331+05:30
