@@ -28,7 +28,7 @@ Flags:
 Use "autoshell [command] --help" for more information about a command.
 ```
 
-## Configuration - `config.yml`
+## Configuration
 
 ### Encryption
 
