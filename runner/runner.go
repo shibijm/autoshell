@@ -161,7 +161,7 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 				continue
 			}
 			action := tokens[0]
-			modifiers := maps.Clone(modifiers)
+			instModifiers := maps.Clone(modifiers)
 			actionSplit := strings.Split(action, "!")
 			if len(actionSplit) == 2 {
 				action = actionSplit[0]
@@ -180,10 +180,11 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 					if !found {
 						v = "true"
 					}
-					modifiers[k] = v
+					instModifiers[k] = v
 				}
 			}
-			if action == "shiftArgs" {
+			switch action {
+			case "shiftArgs":
 				argsLen := len(args)
 				if argsLen > 0 {
 					for i := range argsLen - 1 {
@@ -192,8 +193,11 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 					args = args[:argsLen-1]
 				}
 				continue
+			case "setModifiers":
+				modifiers = instModifiers
+				continue
 			}
-			if err = r.runAction(action, tokens[1:], vars, modifiers); err != nil {
+			if err = r.runAction(action, tokens[1:], vars, instModifiers); err != nil {
 				break
 			}
 		}
