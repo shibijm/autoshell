@@ -24,6 +24,7 @@ type Runner struct {
 	failedCommands   []string
 	ignoredExitCodes []int
 	logFilePath      string
+	logIfFailed      bool
 	logFileBuffer    strings.Builder
 	reporters        []reporter
 	httpClient       http.Client
@@ -57,9 +58,19 @@ func (r *Runner) RunWorkflow(args []string) error {
 		errMsgs = append(errMsgs, err.Error())
 	}
 	r.report(elapsed, errMsgs)
-	defer r.log("")
-	if len(errMsgs) > 0 {
+	failed := len(errMsgs) > 0
+	if failed {
 		r.log("%s", strings.Join(errMsgs, "\n"))
+	}
+	r.log("")
+	if failed {
+		if r.logFilePath != "" && r.logIfFailed {
+			if err := r.appendToLogFile(r.logFileBuffer.String()); err != nil {
+				fmt.Println("Failed to write to log file: " + err.Error())
+			} else {
+				r.logFileBuffer.Reset()
+			}
+		}
 		return errors.New("runner failed")
 	}
 	return nil
@@ -73,7 +84,7 @@ func (r *Runner) log(format string, args ...any) {
 		}
 	}
 	fmt.Print(text)
-	if r.logFilePath != "" {
+	if r.logFilePath != "" && !r.logIfFailed {
 		if err := r.appendToLogFile(text); err != nil {
 			fmt.Println("Failed to write to log file: " + err.Error())
 		}
@@ -250,11 +261,15 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 			break
 		}
 		r.logFilePath = args[0]
-		err = r.appendToLogFile(r.logFileBuffer.String())
-		if err != nil {
-			r.logFilePath = ""
+		if modifiers["ifFailed"] == "true" {
+			r.logIfFailed = true
 		} else {
-			r.logFileBuffer.Reset()
+			err = r.appendToLogFile(r.logFileBuffer.String())
+			if err != nil {
+				r.logFilePath = ""
+			} else {
+				r.logFileBuffer.Reset()
+			}
 		}
 	case "addReporter":
 		if err = checkArgsExact(args, 2); err != nil {
