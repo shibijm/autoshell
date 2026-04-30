@@ -217,14 +217,28 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 			break
 		}
 		commandId := args[0]
-		retries := 0
+		var retries int
 		if retriesStr, ok := modifiers["retries"]; ok {
 			retries, _ = strconv.Atoi(retriesStr)
+		}
+		if retries < 0 {
+			retries = 0
+		}
+		var retryDelay int
+		if retryDelayStr, ok := modifiers["retryDelay"]; ok {
+			retryDelay, _ = strconv.Atoi(retryDelayStr)
 		}
 		var cmdErr error
 		for i := 0; i <= retries; i++ {
 			if i > 0 {
-				r.log("Retrying (%d/%d)", i, retries)
+				var delayText string
+				if retryDelay > 0 {
+					delayText = fmt.Sprintf("in %d seconds ", retryDelay)
+				}
+				r.log("Retrying %s(%d/%d)", delayText, i, retries)
+				if retryDelay > 0 {
+					time.Sleep(time.Duration(retryDelay) * time.Second)
+				}
 			} else if modifiers["hideCommandId"] != "true" {
 				r.log("Command ID: %s", commandId)
 			}
@@ -249,10 +263,7 @@ func (r *Runner) runAction(action string, args []string, vars map[string]string,
 				}
 			}
 			r.log("%s failed: %s", action, cmdErr)
-			if i < retries {
-				continue
-			}
-			if modifiers["ignoreFailures"] != "true" {
+			if i == retries && modifiers["ignoreFailures"] != "true" {
 				r.failedCommands = append(r.failedCommands, commandId)
 			}
 		}
