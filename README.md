@@ -28,7 +28,7 @@ Flags:
 Use "autoshell [command] --help" for more information about a command.
 ```
 
-## Configuration - `config.yml`
+## Configuration
 
 ### Encryption
 
@@ -94,18 +94,22 @@ Config file decrypted successfully
 - `setIgnoredExitCodes <codes: []int>`
 - `print [args...]`
 - `shiftArgs`
+- `setModifiers`
 
-Append modifiers to action names using `!`. Separate multiple modifiers with commas.
+Append modifiers to action names using `!`. Separate multiple modifiers with commas. Workflow modifiers get applied to all actions within the same workflow and are inherited by child workflows.
 
 - `*!W`: Restrict execution to Windows
 - `*!L`: Restrict execution to Linux
 - `runCommand!hideCommandId`
-- `runCommand!retries=n`: Retry`n` times on failure
+- `runCommand!retries=n`: Retry `n` times on failure
+- `runCommand!retryDelay=x`: Delay each retry by `x` seconds
 - `runCommand!ignoreFailures`: Ignore failures (after retries)
+- `setLogFile!ifFailed`: Append to log file only if there were errors
+- `setModifiers!<modifiers...>`: Set modifiers for subsequent actions in the current workflow
 
 ### Variable Substitution
 
-`$x` gets substituted with the value of variable `x`.
+`$x` gets substituted with the value of variable `x`. Variables are resolved in this order: workflow arguments (`$1`, `$2`, ...), local variables, global variables, and finally environment variables. Local variables are scoped to the current workflow and are inherited by child workflows.
 
 ### Example
 

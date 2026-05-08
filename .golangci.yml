@@ -25,6 +25,8 @@ linters:
     - wrapcheck
     - wsl
     - wsl_v5
+    - maintidx
+    - unqueryvet
   settings:
     errcheck:
       check-type-assertions: true
